@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import xgboost as xgb
+from sklearn.metrics import mean_squared_error
+
 
 
 # Read Training Data Set
@@ -31,9 +33,6 @@ fig2.show()
 df = df[df.id !=10092]
 
 ## Numerical and Categorical data types
-#df_dtype = df.dtypes
-#display_nvar = len(alldata.columns)
-#df_dtype_dict = alldata_dtype.to_dict()
 print df.dtypes.value_counts()
 
 
@@ -42,33 +41,52 @@ NonNumColName = ['timestamp', 'product_type', 'sub_area', 'culture_objects_top_2
 NonNumCol = df[NonNumColName]
 #print NonNumCol.describe()
 
+
 # Drop Non-Numerical Features and id
 ColToDrop = NonNumColName + ['id']
 df = df.drop(ColToDrop, axis=1)
 print "Trimmed Training Data Shape: ", df.shape
 
-# Feature Importance by Xgboost
+
+# Sample Data, Fill Missing Values
 low_y_cut  = 1*1e6
 high_y_cut = 40*1e6
-
-df = df.sample(frac=0.1)
+#df = df.sample(frac=0.1)
 df.fillna(df.median(axis=0), inplace=True)
 y_is_within_cut = ((df['price_doc'] > low_y_cut) & (df['price_doc'] < high_y_cut))
-
 train_X = df.loc[y_is_within_cut, df.columns[:-1]]
 train_y = np.log1p(df.loc[y_is_within_cut, 'price_doc'].values.reshape(-1, 1))
 print("Data for model: X={}, y={}".format(train_X.shape, train_y.shape))
 
-model = xgb.XGBRegressor()
-model.fit(train_X, train_y)
+
+# xgboost cross validation - for parameter selection
+xgb_params = {
+    'eta': 0.3,
+    'max_depth': 6,
+    'gamma': 0,
+    'subsample': 0.7,
+    'colsample_bytree': 1,
+    'objective': 'reg:linear',
+    'eval_metric': 'rmse',
+    'silent': 1
+}
+dtrain = xgb.DMatrix(train_X, train_y)
+xgb.cv(xgb_params, dtrain, num_boost_round=20, nfold=5, shuffle=True,
+       metrics={'rmse'}, seed=0,
+       callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
+
+
+# xgboost training
+model = xgb.XGBRegressor().fit(train_X, train_y)
+train_y_hat = model.predict(train_X)
+rmsle_train = np.sqrt(mean_squared_error(train_y, train_y_hat))
+print "RMSLE of training set =", rmsle_train
+
+# Feature Importance
 fig3 = plt.figure(figsize=(7,30))
 ax3  = fig3.add_subplot(111)
 xgb.plot_importance(model, ax=ax3)
 plt.tight_layout()
-
-
-# Display Figures
-plt.show()
 
 
 # Test
@@ -80,5 +98,7 @@ submission = pd.DataFrame(index=test_df['id'], data={'price_doc':test_y_predict}
 print submission.head()
 submission.to_csv('submission.csv', header=True)
 
+# End of Script - display figures
 print "Finished"
+plt.show()
 
