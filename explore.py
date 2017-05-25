@@ -7,9 +7,8 @@ from sklearn.metrics import mean_squared_error
 
 # Read Training Data Set
 df = pd.read_csv('input/train.csv')
+
 print "Original Training Data Shape: ", df.shape
-'''
-# Print log(1+price_doc) values
 log1y = np.log1p(df['price_doc'])
 fig1 = plt.figure()
 plt.hist(log1y, bins=200, color='b')
@@ -18,6 +17,43 @@ plt.ylabel('Count')
 plt.title('Distribution of log(1+price_doc)')
 fig1.show()
 
+
+# Down Sampling
+print "0.99m-1m house:",len(df[ (df.price_doc>=990000) & (df.price_doc<=1000000) ])
+print "2m house:",len(df[ (df.price_doc==2000000) ])
+print "3m house:",len(df[ (df.price_doc==3000000) ])
+
+df_1m = df[ (df.price_doc>=990000) & (df.price_doc<=1000000) ]
+df    = df[ (df.price_doc <990000) | (df.price_doc >1000000) ]
+df_1m = df_1m.sample(frac=0.05, replace=True)
+
+df_2m = df[ (df.price_doc==2000000) ]
+df    = df[ (df.price_doc!=2000000) ]
+df_2m = df_2m.sample(frac=0.1, replace=True)
+
+df_3m = df[ (df.price_doc==3000000) ]
+df    = df[ (df.price_doc!=3000000) ]
+df_3m = df_3m.sample(frac=0.3, replace=True)
+
+df = pd.concat([df, df_1m, df_2m, df_3m])
+
+
+# Print log(1+price_doc) values
+log1y = np.log1p(df['price_doc'])
+fig1_new = plt.figure()
+plt.hist(log1y, bins=200, color='b')
+plt.xlabel('log(1+price_doc)')
+plt.ylabel('Count')
+plt.title('Distribution of Downsampled log(1+price_doc)')
+fig1_new.show()
+
+
+
+# TODO Merge macro data
+#df_all = pd.merge_ordered(df, df_macro, on='timestamp', how='left')
+
+
+'''
 # Top 40 features with most missing data
 MissCount = df.isnull().sum().sort_values(ascending=False).head(40) / len(df) * 100
 fig2 = plt.figure(figsize=(8, 12))
@@ -39,6 +75,7 @@ print df.dtypes.value_counts()
 ObjColName = ['timestamp', 'product_type', 'sub_area', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
 ObjCol = df[ObjColName]
 #print ObjCol.describe()
+print ObjCol.dtypes.value_counts()
 
 
 # Drop Non-Numerical Features and id
@@ -93,17 +130,19 @@ fig3 = plt.figure(figsize=(7,30))
 ax3  = fig3.add_subplot(111)
 xgb.plot_importance(model, ax=ax3)
 plt.tight_layout()
-
+'''
 
 # Prediction
 test_df = pd.read_csv('input/test.csv')
 test_X  = test_df.drop(ColToDrop, axis=1)
-test_y_predict = np.exp(model.predict(test_X))-1
+test_y_predict = np.exp(model.predict(xgb.DMatrix(test_X)))-1
 submission = pd.DataFrame(index=test_df['id'], data={'price_doc':test_y_predict})
 print submission.head()
 submission.to_csv('submission.csv', header=True)
-'''
+
+
 # End of Script - display figures
 plt.show()
 print "Finished"
+
 
