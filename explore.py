@@ -4,20 +4,84 @@ import matplotlib.pyplot as plt
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error
 
+# Settings
+EN_CROSSVALIDATION = False
+EN_TRAINING        = True
+EN_IMPORTANCE      = False
+EN_PREDICTION      = True
+EN_MARCODATA       = True
+NUM_TRAIN_ROUNDS   = 200
 
-# Read Training Data Set
-df = pd.read_csv('input/train.csv')
 
-print "Original Training Data Shape: ", df.shape
-log1y = np.log1p(df['price_doc'])
+# Read Training Data Set and Macro Data Set
+df       = pd.read_csv('input/train.csv')
+df_macro = pd.read_csv('input/macro.csv')
+if EN_MARCODATA:
+    df = pd.merge(df, df_macro, on='timestamp', how='left')
+
+
+# Drop Error Row (id=10092, state=33, buildyear=20052009)
+df = df[df.id != 10092]
+# Object Columns
+ObjColName_Train = ['timestamp', 'product_type', 'sub_area', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
+ObjColName_Macro = ['child_on_acc_pre_school', 'modern_education_share', 'old_education_build_share']
+ObjCol = df[ObjColName_Train]
+#print ObjCol.describe()
+#print ObjCol.dtypes.value_counts()
+# Drop Non-Numerical Features and id
+if EN_MARCODATA:
+    ColToDrop = ObjColName_Train + ObjColName_Macro + ['id']
+else:
+    ColToDrop = ObjColName_Train + ['id']
+df = df.drop(ColToDrop, axis=1)
+# Fill Missing Values
+#df.fillna(df.median(axis=0), inplace=True)
+
+
+
+# Merge Macro Data
+#print df_macro.dtypes.value_counts()
+
+'''
+print df_macro.describe()
+MissCount = df_macro.isnull().sum().sort_values(ascending=False).head(40) / len(df_macro) * 100
+fig2 = plt.figure(figsize=(8, 12))
+plt.barh(np.arange(len(MissCount)), MissCount)
+plt.yticks(np.arange(len(MissCount))+0.5, MissCount.index, rotation='horizontal')
+plt.title('Percentage of Missing Data')
+plt.tight_layout()
+fig2.show()
+'''
+
+
+
+
+
+# Separate Training Set and Validation Set
+df_valid = df.sample(frac=0.15, random_state=0)
+df_train = df.drop(df_valid.index)
+print "[INFO] Trimmed Original Data Set Shape:", df.shape
+print "[INFO]         Training Data Set Shape:", df_train.shape
+print "[INFO]       Validation Data Set Shape:", df_valid.shape
+
+
+# Plot Original Set, Train Set and Validation Set
 fig1 = plt.figure()
-plt.hist(log1y, bins=200, color='b')
-plt.xlabel('log(1+price_doc)')
-plt.ylabel('Count')
-plt.title('Distribution of log(1+price_doc)')
+ax1 = plt.subplot(311)
+plt.hist(np.log1p(df['price_doc'].values), bins=200, color='b')
+plt.setp(ax1.get_xticklabels(), visible=False)
+plt.title('Original Data Set')
+ax2 = plt.subplot(312, sharex=ax1)
+plt.hist(np.log1p(df_train['price_doc'].values), bins=200, color='b')
+plt.setp(ax2.get_xticklabels(), visible=False)
+plt.title('Training Data Set (85%)')
+plt.subplot(313, sharex=ax1)
+plt.hist(np.log1p(df_valid['price_doc'].values), bins=200, color='b')
+plt.title('Validation Data Set (15%)')
 fig1.show()
 
 
+'''
 # Down Sampling
 print "0.99m-1m house:",len(df[ (df.price_doc>=990000) & (df.price_doc<=1000000) ])
 print "2m house:",len(df[ (df.price_doc==2000000) ])
@@ -25,19 +89,19 @@ print "3m house:",len(df[ (df.price_doc==3000000) ])
 
 df_1m = df[ (df.price_doc>=990000) & (df.price_doc<=1000000) ]
 df    = df[ (df.price_doc <990000) | (df.price_doc >1000000) ]
-df_1m = df_1m.sample(frac=0.05, replace=True)
+df_1m = df_1m.sample(frac=0.1, replace=True)
 
 df_2m = df[ (df.price_doc==2000000) ]
 df    = df[ (df.price_doc!=2000000) ]
-df_2m = df_2m.sample(frac=0.1, replace=True)
+df_2m = df_2m.sample(frac=0.3, replace=True)
 
 df_3m = df[ (df.price_doc==3000000) ]
 df    = df[ (df.price_doc!=3000000) ]
-df_3m = df_3m.sample(frac=0.3, replace=True)
+df_3m = df_3m.sample(frac=0.5, replace=True)
 
 df = pd.concat([df, df_1m, df_2m, df_3m])
-
-
+'''
+'''
 # Print log(1+price_doc) values
 log1y = np.log1p(df['price_doc'])
 fig1_new = plt.figure()
@@ -46,11 +110,9 @@ plt.xlabel('log(1+price_doc)')
 plt.ylabel('Count')
 plt.title('Distribution of Downsampled log(1+price_doc)')
 fig1_new.show()
+'''
 
 
-
-# TODO Merge macro data
-#df_all = pd.merge_ordered(df, df_macro, on='timestamp', how='left')
 
 
 '''
@@ -64,35 +126,27 @@ plt.tight_layout()
 fig2.show()
 '''
 
-# Drop Error Row (id=10092, state=33, buildyear=20052009)
-df = df[df.id != 10092]
-
-## Numerical and Categorical data types
-print df.dtypes.value_counts()
-
-
-# Object Columns
-ObjColName = ['timestamp', 'product_type', 'sub_area', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
-ObjCol = df[ObjColName]
-#print ObjCol.describe()
-print ObjCol.dtypes.value_counts()
-
-
-# Drop Non-Numerical Features and id
-ColToDrop = ObjColName + ['id']
-df = df.drop(ColToDrop, axis=1)
-print "Trimmed Training Data Shape: ", df.shape
 
 
 # Prepare Training Data, Fill Missing Values with median
-low_y_cut  = 1*1e6
-high_y_cut = 40*1e6
-df.fillna(df.median(axis=0), inplace=True)
-y_is_within_cut = ((df['price_doc'] > low_y_cut) & (df['price_doc'] < high_y_cut))
-train_X = df.loc[y_is_within_cut, df.columns[:-1]]
-train_y = np.log1p(df.loc[y_is_within_cut, 'price_doc'].values.reshape(-1, 1))
-print("Data for model: X={}, y={}".format(train_X.shape, train_y.shape))
-
+low_y_cut  = 1e6
+high_y_cut = 1e9
+# Training Set
+df_train.fillna(df_train.median(axis=0), inplace=True)
+y_range_train = ((df_train['price_doc'] > low_y_cut) & (df_train['price_doc'] < high_y_cut))
+train_X = df_train.loc[y_range_train, :]
+train_X = train_X.drop('price_doc', axis=1)
+train_y = np.log1p(df_train.loc[y_range_train, 'price_doc'].values.reshape(-1, 1))
+dtrain = xgb.DMatrix(train_X, train_y)
+# Validation Set
+df_valid.fillna(df_valid.median(axis=0), inplace=True)
+#valid_X = df_valid.iloc[:,:-1]
+#valid_y = np.log1p(df_valid['price_doc'].values.reshape(-1, 1))
+y_range_valid = ((df_valid['price_doc'] > low_y_cut) & (df_valid['price_doc'] < high_y_cut))
+valid_X = df_valid.loc[y_range_valid, :]
+valid_X = valid_X.drop('price_doc', axis=1)
+valid_y = np.log1p(df_valid.loc[y_range_valid, 'price_doc'].values.reshape(-1, 1))
+dvalid = xgb.DMatrix(valid_X, valid_y)
 
 # xgboost cross validation - for parameter selection
 xgb_params = {
@@ -110,35 +164,46 @@ xgb_params = {
     'seed': 0,
     'nthread': 6
 }
-dtrain = xgb.DMatrix(train_X, train_y)
-xgb.cv(xgb_params, dtrain, num_boost_round=100, nfold=5, shuffle=True,
-       metrics={'rmse'}, seed=0,
-       callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
+if EN_CROSSVALIDATION:
+    print "[INFO] Running Cross-Validation..."
+    xgb.cv(xgb_params, dtrain, num_boost_round=200, nfold=5, shuffle=True,
+           metrics={'rmse'}, seed=0,
+           callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
 
 
 # xgboost training
-model = xgb.train(xgb_params, dtrain, num_boost_round=100,
-                  verbose_eval=1,
+if EN_TRAINING:
+    print "[INFO] Training..."
+    model = xgb.train(xgb_params, dtrain, num_boost_round=NUM_TRAIN_ROUNDS,
+                  evals=[(dtrain, 'training'),(dvalid, 'validation')], verbose_eval=1,
                   callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
-train_y_hat = model.predict(dtrain)
-rmsle_train = np.sqrt(mean_squared_error(train_y, train_y_hat))
-print "RMSLE of training set =", rmsle_train
+    train_y_hat = model.predict(dtrain)
+    rmsle_train = np.sqrt(mean_squared_error(train_y, train_y_hat))
+    valid_y_hat = model.predict(dvalid)
+    rmsle_valid = np.sqrt(mean_squared_error(valid_y, valid_y_hat))
 
-'''
-# Plot Feature Importance
-fig3 = plt.figure(figsize=(7,30))
-ax3  = fig3.add_subplot(111)
-xgb.plot_importance(model, ax=ax3)
-plt.tight_layout()
-'''
+    print "[INFO] RMSLE   training set =", rmsle_train
+    print "[INFO] RMSLE validation set =", rmsle_valid
+    
 
-# Prediction
-test_df = pd.read_csv('input/test.csv')
-test_X  = test_df.drop(ColToDrop, axis=1)
-test_y_predict = np.exp(model.predict(xgb.DMatrix(test_X)))-1
-submission = pd.DataFrame(index=test_df['id'], data={'price_doc':test_y_predict})
-print submission.head()
-submission.to_csv('submission.csv', header=True)
+    if EN_IMPORTANCE:
+        # Plot Feature Importance
+        fig3 = plt.figure(figsize=(7,30))
+        xgb.plot_importance(model, ax=fig3.add_subplot(111))
+        plt.tight_layout()
+
+    if EN_PREDICTION:
+        # Make Prediction
+        print "[INFO] Making Prediction..."
+        test_df  = pd.read_csv('input/test.csv')
+        if EN_MARCODATA:
+            test_df = pd.merge(test_df, df_macro, on='timestamp', how='left')
+        test_df.fillna(test_df.median(axis=0), inplace=True)
+        test_X = test_df.drop(ColToDrop, axis=1)
+        test_y_predict = np.exp(model.predict(xgb.DMatrix(test_X)))-1
+        submission = pd.DataFrame(index=test_df['id'], data={'price_doc':test_y_predict})
+        print submission.head()
+        submission.to_csv('submission.csv', header=True)
 
 
 # End of Script - display figures
