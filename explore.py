@@ -9,7 +9,7 @@ EN_CROSSVALIDATION = False
 EN_TRAINING        = True
 EN_IMPORTANCE      = False
 EN_PREDICTION      = True
-EN_MARCODATA       = True
+EN_MARCODATA       = False
 NUM_TRAIN_ROUNDS   = 200
 
 
@@ -58,7 +58,7 @@ fig2.show()
 
 
 # Separate Training Set and Validation Set
-df_valid = df.sample(frac=0.15, random_state=0)
+df_valid = df.sample(frac=0.1, random_state=0)
 df_train = df.drop(df_valid.index)
 print "[INFO] Trimmed Original Data Set Shape:", df.shape
 print "[INFO]         Training Data Set Shape:", df_train.shape
@@ -147,6 +147,7 @@ valid_X = df_valid.loc[y_range_valid, :]
 valid_X = valid_X.drop('price_doc', axis=1)
 valid_y = np.log1p(df_valid.loc[y_range_valid, 'price_doc'].values.reshape(-1, 1))
 dvalid = xgb.DMatrix(valid_X, valid_y)
+
 
 # xgboost cross validation - for parameter selection
 xgb_params = {
