@@ -12,7 +12,7 @@ EN_IMPORTANCE      = False
 EN_PREDICTION      = True
 EN_MARCODATA       = False
 EN_DOWNSAMPLING    = True
-NUM_TRAIN_ROUNDS   = 200
+NUM_TRAIN_ROUNDS   = 1000
 RANDOM_SEED        = 1
 
 # Read Training Data Set and Macro Data Set
@@ -67,7 +67,7 @@ if EN_DOWNSAMPLING:
 
     df_3m = df[ (df.price_doc==3000000) & (df.product_type==0) ]
     df    = df.drop(df_3m.index)
-    df_3m = df_3m.sample(frac=0.4, replace=False, random_state=RANDOM_SEED)
+    df_3m = df_3m.sample(frac=0.5, replace=False, random_state=RANDOM_SEED)
 
     df    = pd.concat([df, df_1m, df_2m, df_3m])
 
@@ -84,8 +84,6 @@ plt.title('Percentage of Missing Data')
 plt.tight_layout()
 fig2.show()
 '''
-
-
 
 
 
@@ -108,33 +106,6 @@ plt.title('Validation Data Set (10%)')
 OrigTrainValidSetFig.show()
 
 
-'''
-# Down Sampling
-if EN_DOWNSAMPLING:
-    df_1m    = df_train[ (df_train.price_doc<=1000000) & (df_train.product_type==0) ]
-    df_train = df_train.drop(df_1m.index)
-    df_1m    = df_1m.sample(frac=0.1, replace=True)
-
-    df_2m    = df_train[ (df_train.price_doc==2000000) & (df_train.product_type==0) ]
-    df_train = df_train.drop(df_2m.index)
-    df_2m    = df_2m.sample(frac=0.3, replace=True)
-
-    df_3m    = df_train[ (df_train.price_doc==3000000) & (df_train.product_type==0) ]
-    df_train = df_train.drop(df_3m.index)
-    df_3m    = df_3m.sample(frac=0.5, replace=True)
-
-    df_train = pd.concat([df_train, df_1m, df_2m, df_3m])
-
-    # Plot Down Sampled Training Data
-    log1y = np.log1p(df_train.loc[df_train.product_type==0,'price_doc'])
-    DownSampleInvestFig = plt.figure()
-    plt.hist(log1y, bins=200, color='b')
-    plt.xlabel('log(1+price_doc)')
-    plt.ylabel('Count')
-    plt.title('Distribution of Downsampled log(1+price_doc)')
-    DownSampleInvestFig.show()
-'''
-
 
 '''
 # Top 40 features with most missing data
@@ -151,7 +122,7 @@ fig2.show()
 
 # Prepare Training Data, Fill Missing Values with median
 low_y_cut  = 1e2
-high_y_cut = 1e9
+high_y_cut = 1e10
 # Training Set
 df_train.fillna(df_train.median(axis=0), inplace=True)
 y_range_train = ((df_train['price_doc'] > low_y_cut) & (df_train['price_doc'] < high_y_cut))
@@ -172,13 +143,13 @@ dvalid = xgb.DMatrix(valid_X, valid_y)
 
 # xgboost cross validation - for parameter selection
 xgb_params = {
-    'learning_rate': 0.1,
-    'max_depth': 3,
+    'learning_rate': 0.05,
+    'max_depth': 4,
     'gamma': 0,
-    'sub_sample': 1,
+    'sub_sample': 0.7,
     'reg_alpha': 0,
     'reg_lambda': 1,
-    'colsample_bytree': 1,
+    'colsample_bytree': 0.7,
     'colsample_bylevel': 1,
     'objective': 'reg:linear',
     'eval_metric': 'rmse',
@@ -188,15 +159,16 @@ xgb_params = {
 }
 if EN_CROSSVALIDATION:
     print "[INFO] Running Cross-Validation..."
-    xgb.cv(xgb_params, dtrain, num_boost_round=200, nfold=5, shuffle=True,
-           metrics={'rmse'}, seed=RANDOM_SEED,
-           callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
+    xgb.cv(xgb_params, dtrain, num_boost_round=NUM_TRAIN_ROUNDS, nfold=5, shuffle=True,
+           metrics={'rmse'}, seed=0, early_stopping_rounds=20,
+           callbacks=[xgb.callback.print_evaluation(show_stdv=True)])
 
 
 # xgboost training
 if EN_TRAINING:
     print "[INFO] Training..."
     model = xgb.train(xgb_params, dtrain, num_boost_round=NUM_TRAIN_ROUNDS,
+                  early_stopping_rounds=20,
                   evals=[(dtrain, 'training'),(dvalid, 'validation')], verbose_eval=1,
                   callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
     train_y_hat = model.predict(dtrain)
