@@ -8,7 +8,7 @@ from sklearn.preprocessing import LabelEncoder
 # Settings
 EN_CROSSVALIDATION = False
 EN_TRAINING        = True
-EN_IMPORTANCE      = False
+EN_IMPORTANCE      = True
 EN_PREDICTION      = True
 EN_MARCODATA       = False
 EN_DOWNSAMPLING    = True
@@ -29,6 +29,7 @@ df['product_type'] = ProdTypeEncoder.transform(df['product_type'])
 
 # Drop Error Row (id=10092, state=33, buildyear=20052009)
 df = df[df.id != 10092]
+
 
 # Object Columns
 ObjColName_Train = ['timestamp', 'sub_area', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
@@ -107,16 +108,16 @@ OrigTrainValidSetFig.show()
 
 
 
-'''
+
 # Top 40 features with most missing data
 MissCount = df.isnull().sum().sort_values(ascending=False).head(40) / len(df) * 100
-fig2 = plt.figure(figsize=(8, 12))
+MissDataFig = plt.figure(figsize=(8, 12))
 plt.barh(np.arange(len(MissCount)), MissCount)
 plt.yticks(np.arange(len(MissCount))+0.5, MissCount.index, rotation='horizontal')
 plt.title('Percentage of Missing Data')
 plt.tight_layout()
-fig2.show()
-'''
+MissDataFig.show()
+
 
 
 
@@ -219,7 +220,7 @@ if EN_TRAINING:
 
 
 # End of Script - display figures
-#plt.show()
+plt.show()
 print "Finished"
 
 
