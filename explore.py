@@ -6,7 +6,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 
 # Settings
-EN_CROSSVALIDATION = True
+EN_CROSSVALIDATION = False
 EN_TRAINING        = True
 EN_IMPORTANCE      = True
 EN_PREDICTION      = True
@@ -16,17 +16,32 @@ NUM_TRAIN_ROUNDS   = 1000
 RANDOM_SEED        = 1
 
 # Read Training Data Set and Macro Data Set
-df       = pd.read_csv('input/train.csv')
+df_train = pd.read_csv('input/train.csv')
 df_macro = pd.read_csv('input/macro.csv')
+df_test  = pd.read_csv('input/test.csv')
+
+# Concatenate Training and Test Data Set for Cleaning
+df = pd.concat([df_train, df_test], ignore_index=True)
+
+# Select and Merge Marco Features
+MacroCol = ['timestamp', 'oil_urals', 'gdp_quart_growth', 'cpi', 'usdrub', 'salary_growth', 'unemployment', 'mortgage_rate', 'deposits_rate', 'rent_price_3room_eco', 'rent_price_3room_bus']
+df_macro = df_macro[MacroCol]
 if EN_MARCODATA:
     df = pd.merge(df, df_macro, on='timestamp', how='left')
 
 # Transform product_type into numbers: Investment=0, OwnerOccupier=1
+df['product_type'].fillna(df['product_type'].mode().iloc[0], inplace=True) 
 ProdTypeEncoder = LabelEncoder()
 ProdTypeEncoder.fit(df['product_type'])
 df['product_type'] = ProdTypeEncoder.transform(df['product_type'])
 
-# Data Cleaning
+# Transform sub_area into numbers
+SubAreaEncoder = LabelEncoder()
+SubAreaEncoder.fit(df['sub_area'])
+df['sub_area'] = SubAreaEncoder.transform(df['sub_area'])
+
+
+# ------- Data Cleaning ------- #
 # Drop Error Rows
 df = df[(df.full_sq>1)|(df.life_sq>1)]
 
@@ -56,24 +71,22 @@ df.loc[(df.floor==0)|(df.floor>df.max_floor), 'floor'] = np.nan
 df.loc[df.full_sq<30, 'num_room'] = 1
 df['life_sq'].fillna(np.maximum(df['full_sq']*0.732-4.241,1), inplace=True)
 df['kitch_sq'].fillna(np.maximum(df['kitch_sq']*0.078+4.040,1), inplace=True)
-
-
-# Object Columns
-ObjColName_Train = ['timestamp', 'sub_area', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
-ObjColName_Macro = ['child_on_acc_pre_school', 'modern_education_share', 'old_education_build_share']
-ObjCol = df[ObjColName_Train]
-#print ObjCol.describe()
-#print ObjCol.dtypes.value_counts()
-# Drop Non-Numerical Features and id
-if EN_MARCODATA:
-    ColToDrop = ObjColName_Train + ObjColName_Macro + ['id']
-else:
-    ColToDrop = ObjColName_Train + ['id']
-df = df.drop(ColToDrop, axis=1)
-# Fill Missing Values
 df.fillna(df.median(axis=0), inplace=True)
 
+# Separate Training and Test Data Sets
+test_df = df.loc[df.id>30473, :]
+test_df.reset_index(inplace=True)
+df = df.loc[df.id<30474, :]
+df.reset_index(inplace=True)
 
+# Drop Object Columns
+ObjColName = ['timestamp', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
+ColToDrop = ObjColName + ['index']
+df.drop(ColToDrop+['id'], axis=1, inplace=True)
+test_df.drop(ColToDrop, axis=1, inplace=True) 
+
+
+# ------- Prepare Training Data Set ------- #
 # Plot Original Data Set
 OrigTrainValidSetFig = plt.figure()
 ax1 = plt.subplot(311)
@@ -81,11 +94,10 @@ plt.hist(np.log1p(df['price_doc'].values), bins=200, color='b')
 plt.setp(ax1.get_xticklabels(), visible=False)
 plt.title('Original Data Set')
 
-
-
 # Down Sampling
 if EN_DOWNSAMPLING:
     df_1m = df[ (df.price_doc<=1000000) & (df.product_type==0) ]
+    print df_1m[['full_sq', 'life_sq']].head()
     df    = df.drop(df_1m.index)
     df_1m = df_1m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED)
 
@@ -208,34 +220,8 @@ if EN_TRAINING:
 
     if EN_PREDICTION:
         # Make Prediction
-        print "[INFO] Making Prediction..."
-        test_df  = pd.read_csv('input/test.csv')
-        if EN_MARCODATA:
-            test_df = pd.merge(test_df, df_macro, on='timestamp', how='left')
-        # Cleaning
-        # Flag some errors to NA or modify by subjective rules
-        test_df.loc[(test_df.full_sq<2) & (test_df.life_sq>1), 'full_sq'] = test_df.life_sq
-        test_df.loc[(test_df.kitch_sq>test_df.full_sq*0.7)|(test_df.kitch_sq<2) , 'kitch_sq'] = np.nan
-        test_df.loc[(test_df.build_year<1000) | (test_df.build_year>2050), 'build_year'] = np.nan
-        test_df.loc[(test_df.num_room>9) & (test_df.full_sq<100), 'num_room'] = np.nan
-        test_df.loc[(test_df.full_sq<10) & (test_df.life_sq>10), 'full_sq'] = test_df.life_sq
-        test_df.loc[test_df.life_sq<2, 'life_sq'] = np.nan
-        test_df.loc[test_df.life_sq>test_df.full_sq*2, 'life_sq'] = test_df.life_sq/10
-        test_df.loc[test_df.full_sq>310, 'full_sq'] = test_df.full_sq/10
-        test_df.loc[test_df.life_sq>test_df.full_sq, 'life_sq'] = np.nan
-        test_df.loc[(test_df.max_floor==0)|(test_df.max_floor>60), 'max_floor'] = np.nan
-        test_df.loc[(test_df.floor==0)|(test_df.floor>test_df.max_floor), 'floor'] = np.nan
-        # Imputing Values
-        test_df.loc[test_df.full_sq<30, 'num_room'] = 1
-        test_df['life_sq'].fillna(np.maximum(test_df['full_sq']*0.732-4.241,1), inplace=True)
-        test_df['kitch_sq'].fillna(np.maximum(test_df['kitch_sq']*0.078+4.040,1), inplace=True)
-        # Fill the rest of missing values with median
-        test_df.fillna(test_df.median(axis=0), inplace=True)
-        # Handle NA in product_type and apply encoding
-        test_df['product_type'].fillna(test_df['product_type'].mode().iloc[0], inplace=True) 
-        test_df['product_type'] = ProdTypeEncoder.transform(test_df['product_type'])
         # Drop Columns
-        test_X = test_df.drop(ColToDrop, axis=1)
+        test_X = test_df.drop(['price_doc', 'id'], axis=1)
         test_y_predict = np.exp(model.predict(xgb.DMatrix(test_X)))-1
         submission = pd.DataFrame(index=test_df['id'], data={'price_doc':test_y_predict})
         print submission.head()
