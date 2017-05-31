@@ -2,54 +2,31 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import xgboost as xgb
-import geopandas as gpd
-from shapely.geometry import Point
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
-from pyproj import Proj, transform, Geod
 
 # Settings
 EN_CROSSVALIDATION = True
-EN_TRAINING        = True
-EN_IMPORTANCE      = False
+EN_TRAINING        = False
+EN_IMPORTANCE      = True
 EN_PREDICTION      = True
-EN_MARCODATA       = True
+EN_MARCODATA       = False
 EN_DOWNSAMPLING    = True
-TRAINING_ROUNDS    = 1000
-RANDOM_SEED_SPLIT  = 1
-RANDOM_SEED_TRAIN  = 0
+NUM_TRAIN_ROUNDS   = 1000
+RANDOM_SEED        = 1
 
-
-# Read Data
-df_train = pd.read_csv('input/train.csv')
+# Read Training Data Set and Macro Data Set
+df       = pd.read_csv('input/train.csv')
 df_macro = pd.read_csv('input/macro.csv')
-df_test  = pd.read_csv('input/test.csv')
-shp      = gpd.read_file('input/moscow_adm.shp')
-
-# Concatenate Training and Test Data Set for Cleaning
-df = pd.concat([df_train, df_test], ignore_index=True)
-
-# Select and Merge Marco Features
-MacroCol = ['timestamp', 'oil_urals', 'gdp_quart_growth', 'cpi', 'usdrub', 'salary_growth', 'unemployment', 'mortgage_rate', 'deposits_rate', 'rent_price_3room_eco', 'rent_price_3room_bus']
-df_macro = df_macro[MacroCol]
 if EN_MARCODATA:
     df = pd.merge(df, df_macro, on='timestamp', how='left')
 
-# Merge Location Data - Distance from Kremlin
-shp['centroid'] = shp.centroid
-shp['long'] = shp['centroid'].apply(lambda p: p.x)
-shp['lat']  = shp['centroid'].apply(lambda p: p.y)
-shp['km_long'] = 37.617664
-shp['km_lat']  = 55.752121
-angle1, angle2, dist1 = Geod(ellps='WGS84').inv(shp['long'].values, shp['lat'].values, shp['km_long'].values, shp['km_lat'].values)
-shp['distance_from_kremlin'] = dist1/1000
-df_location = pd.DataFrame({'sub_area':shp['RAION'], 'district':shp['OKRUGS'], 'distance_from_kremlin':shp['distance_from_kremlin'] })
-df = pd.merge(df, df_location, on='sub_area', how='left')
+# Transform product_type into numbers: Investment=0, OwnerOccupier=1
+ProdTypeEncoder = LabelEncoder()
+ProdTypeEncoder.fit(df['product_type'])
+df['product_type'] = ProdTypeEncoder.transform(df['product_type'])
 
-# 
-
-
-# ------- Data Cleaning ------- #
+# Data Cleaning
 # Drop Error Rows
 df = df[(df.full_sq>1)|(df.life_sq>1)]
 
@@ -75,96 +52,50 @@ df.loc[df.life_sq>df.full_sq, 'life_sq'] = np.nan
 df.loc[(df.max_floor==0)|(df.max_floor>60), 'max_floor'] = np.nan
 df.loc[(df.floor==0)|(df.floor>df.max_floor), 'floor'] = np.nan
 
-# Additional Features - Time
-df['timestamp']           = pd.to_datetime(df["timestamp"])
-df['year']                = df['timestamp'].dt.year
-df['month']               = df['timestamp'].dt.month
-#df['age_of_building']     = df['timestamp'].dt.year - df['build_year']
-
-# Additional Features - House Characteristics
-#df['num_floors_from_top'] = df['max_floor'] - df['floor']
-#df['life_sq/room']        = df['life_sq'] / df['num_room']
-#df['life_sq/full_sq']     = df['life_sq'] / df['full_sq']
-
-# Additional Features - avg price/sq for each region
-df['price/sq']            = df['price_doc'] / df['full_sq']
-df_unitprice              = df.groupby(['sub_area', 'year'])['price/sq'].mean()
-df_unitprice              = df_unitprice.to_frame()
-df_unitprice.columns      = ['price/sq_year']
-df                        = df.join(df_unitprice, on=['sub_area', 'year'])
-
 # Imputing Values
 df.loc[df.full_sq<30, 'num_room'] = 1
 df['life_sq'].fillna(np.maximum(df['full_sq']*0.732-4.241,1), inplace=True)
 df['kitch_sq'].fillna(np.maximum(df['kitch_sq']*0.078+4.040,1), inplace=True)
+
+
+# Object Columns
+ObjColName_Train = ['timestamp', 'sub_area', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
+ObjColName_Macro = ['child_on_acc_pre_school', 'modern_education_share', 'old_education_build_share']
+ObjCol = df[ObjColName_Train]
+#print ObjCol.describe()
+#print ObjCol.dtypes.value_counts()
+# Drop Non-Numerical Features and id
+if EN_MARCODATA:
+    ColToDrop = ObjColName_Train + ObjColName_Macro + ['id']
+else:
+    ColToDrop = ObjColName_Train + ['id']
+df = df.drop(ColToDrop, axis=1)
+# Fill Missing Values
 df.fillna(df.median(axis=0), inplace=True)
 
 
-
-# object Column Encoding
-# Transform product_type into numbers: Investment=0, OwnerOccupier=1
-df['product_type'].fillna(df['product_type'].mode().iloc[0], inplace=True)
-ProdTypeEncoder = LabelEncoder()
-ProdTypeEncoder.fit(df['product_type'])
-df['product_type'] = ProdTypeEncoder.transform(df['product_type'])
-
-# Transform district into numbers
-DistrictEncoder = LabelEncoder()
-DistrictEncoder.fit(df['district'])
-df['district'] = DistrictEncoder.transform(df['district'])
-
-# Transform sub_area into numbers
-SubAreaEncoder = LabelEncoder()
-SubAreaEncoder.fit(df['sub_area'])
-df['sub_area'] = SubAreaEncoder.transform(df['sub_area'])
-
-
-
-
-# Separate Training and Test Data Sets
-test_df = df.loc[df.id>30473, :]
-test_df.reset_index(inplace=True)
-df = df.loc[df.id<30474, :]
-df.reset_index(inplace=True)
-
-'''
-# Object Columns
-for c in df.columns:
-    if df[c].dtype == 'object':
-        lbl = LabelEncoder()
-        lbl.fit(list(df[c].values)) 
-        df[c] = lbl.transform(list(df[c].values))
-'''
-
-# Drop Object Columns
-ObjColName = ['timestamp', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
-ColToDrop = ObjColName + ['price/sq'] + ['year'] + ['index']
-#ColToDrop = ['timestamp', 'index']
-df.drop(ColToDrop+['id'], axis=1, inplace=True)
-test_df.drop(ColToDrop, axis=1, inplace=True) 
-
-
-# ------- Prepare Training Data Set ------- #
 # Plot Original Data Set
 OrigTrainValidSetFig = plt.figure()
 ax1 = plt.subplot(311)
 plt.hist(np.log1p(df['price_doc'].values), bins=200, color='b')
 plt.setp(ax1.get_xticklabels(), visible=False)
-plt.title('Training Data Set')
+plt.title('Original Data Set')
+
+
 
 # Down Sampling
 if EN_DOWNSAMPLING:
     df_1m = df[ (df.price_doc<=1000000) & (df.product_type==0) ]
     df    = df.drop(df_1m.index)
-    df_1m = df_1m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED_SPLIT)
+    df_1m = df_1m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED)
 
     df_2m = df[ (df.price_doc==2000000) & (df.product_type==0) ]
     df    = df.drop(df_2m.index)
-    df_2m = df_2m.sample(frac=0.7, replace=False, random_state=RANDOM_SEED_SPLIT)
+    df_2m = df_2m.sample(frac=0.45, replace=False, random_state=RANDOM_SEED)
 
     df_3m = df[ (df.price_doc==3000000) & (df.product_type==0) ]
     df    = df.drop(df_3m.index)
-    df_3m = df_3m.sample(frac=0.5, replace=False, random_state=RANDOM_SEED_SPLIT)
+    df_3m = df_3m.sample(frac=0.5, replace=False, random_state=RANDOM_SEED)
 
     df    = pd.concat([df, df_1m, df_2m, df_3m])
 
@@ -183,8 +114,7 @@ fig2.show()
 
 
 # Separate Training Set and Validation Set
-#df_train = df
-df_valid = df.sample(frac=0.2, random_state=RANDOM_SEED_SPLIT)
+df_valid = df.sample(frac=0.1, random_state=RANDOM_SEED)
 df_train = df.drop(df_valid.index)
 print "[INFO] Trimmed Original Data Set Shape:", df.shape
 print "[INFO]         Training Data Set Shape:", df_train.shape
@@ -234,50 +164,81 @@ dvalid = xgb.DMatrix(valid_X, valid_y)
 
 # xgboost cross validation - for parameter selection
 xgb_params = {
-    'learning_rate': 0.1,
-    'max_depth': 6,
+    'learning_rate': 0.05,
+    'max_depth': 4,
     'gamma': 0,
-    'sub_sample': 1,
+    'sub_sample': 0.7,
     'reg_alpha': 0,
     'reg_lambda': 1,
-    'colsample_bytree': 0.4,
+    'colsample_bytree': 0.7,
     'colsample_bylevel': 1,
     'objective': 'reg:linear',
     'eval_metric': 'rmse',
     'silent': 1,
-    'seed': RANDOM_SEED_TRAIN,
+    'seed': 0,
     'nthread': 6
 }
 if EN_CROSSVALIDATION:
     print "[INFO] Running Cross-Validation..."
     cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, nfold=5, shuffle=True,
-           metrics={'rmse'}, seed=0, early_stopping_rounds=10, verbose_eval=10)
-    num_rounds = len(cv_output)
-    print "[INFO] Optimal Training Rounds =", num_rounds
-    
+           metrics={'rmse'}, seed=0, early_stopping_rounds=20, verbose_eval=10)
+    print "[INFO] Optimal Training Rounds =", len(cv_output)
 
 # xgboost training
 if EN_TRAINING:
-    print "[INFO] Training XGBoost for",TRAINING_ROUNDS,"rounds..."
-    
-    model = xgb.train(xgb_params, dtrain, num_boost_round=TRAINING_ROUNDS,
-                  early_stopping_rounds=10, evals=[(dvalid, 'validation')], verbose_eval=10)
+    print "[INFO] Training..."
+    model = xgb.train(xgb_params, dtrain, num_boost_round=NUM_TRAIN_ROUNDS,
+                  early_stopping_rounds=20,
+                  evals=[(dtrain, 'training'),(dvalid, 'validation')], verbose_eval=1,
+                  callbacks=[xgb.callback.print_evaluation(show_stdv=False)])
     train_y_hat = model.predict(dtrain)
     rmsle_train = np.sqrt(mean_squared_error(train_y, train_y_hat))
     valid_y_hat = model.predict(dvalid)
     rmsle_valid = np.sqrt(mean_squared_error(valid_y, valid_y_hat))
+
     print "[INFO] RMSLE   training set =", rmsle_train
     print "[INFO] RMSLE validation set =", rmsle_valid
 
+    if EN_IMPORTANCE:
+        # Plot Feature Importance
+        fig3 = plt.figure(figsize=(7,30))
+        xgb.plot_importance(model, ax=fig3.add_subplot(111))
+        plt.tight_layout()
+
     if EN_PREDICTION:
         # Make Prediction
+        print "[INFO] Making Prediction..."
+        test_df  = pd.read_csv('input/test.csv')
+        if EN_MARCODATA:
+            test_df = pd.merge(test_df, df_macro, on='timestamp', how='left')
+        # Cleaning
+        # Flag some errors to NA or modify by subjective rules
+        test_df.loc[(test_df.full_sq<2) & (test_df.life_sq>1), 'full_sq'] = test_df.life_sq
+        test_df.loc[(test_df.kitch_sq>test_df.full_sq*0.7)|(test_df.kitch_sq<2) , 'kitch_sq'] = np.nan
+        test_df.loc[(test_df.build_year<1000) | (test_df.build_year>2050), 'build_year'] = np.nan
+        test_df.loc[(test_df.num_room>9) & (test_df.full_sq<100), 'num_room'] = np.nan
+        test_df.loc[(test_df.full_sq<10) & (test_df.life_sq>10), 'full_sq'] = test_df.life_sq
+        test_df.loc[test_df.life_sq<2, 'life_sq'] = np.nan
+        test_df.loc[test_df.life_sq>test_df.full_sq*2, 'life_sq'] = test_df.life_sq/10
+        test_df.loc[test_df.full_sq>310, 'full_sq'] = test_df.full_sq/10
+        test_df.loc[test_df.life_sq>test_df.full_sq, 'life_sq'] = np.nan
+        test_df.loc[(test_df.max_floor==0)|(test_df.max_floor>60), 'max_floor'] = np.nan
+        test_df.loc[(test_df.floor==0)|(test_df.floor>test_df.max_floor), 'floor'] = np.nan
+        # Imputing Values
+        test_df.loc[test_df.full_sq<30, 'num_room'] = 1
+        test_df['life_sq'].fillna(np.maximum(test_df['full_sq']*0.732-4.241,1), inplace=True)
+        test_df['kitch_sq'].fillna(np.maximum(test_df['kitch_sq']*0.078+4.040,1), inplace=True)
+        # Fill the rest of missing values with median
+        test_df.fillna(test_df.median(axis=0), inplace=True)
+        # Handle NA in product_type and apply encoding
+        test_df['product_type'].fillna(test_df['product_type'].mode().iloc[0], inplace=True) 
+        test_df['product_type'] = ProdTypeEncoder.transform(test_df['product_type'])
         # Drop Columns
-        test_X = test_df.drop(['price_doc', 'id'], axis=1)
+        test_X = test_df.drop(ColToDrop, axis=1)
         test_y_predict = np.exp(model.predict(xgb.DMatrix(test_X)))-1
         submission = pd.DataFrame(index=test_df['id'], data={'price_doc':test_y_predict})
         print submission.head()
         submission.to_csv('submission.csv', header=True)
-        
         # Plot Training, Validation and Test Sets
         TrainValidTestSetFig = plt.figure()
         ax4 = plt.subplot(311, sharex=ax1)
@@ -292,18 +253,11 @@ if EN_TRAINING:
         plt.hist(np.log1p(test_y_predict), bins=200, color='b')
         plt.title('Test Data Set Prediction')
         TrainValidTestSetFig.show()
-        
-
-    if EN_IMPORTANCE:
-        # Plot Feature Importance
-        fig3 = plt.figure(figsize=(7,30))
-        xgb.plot_importance(model, ax=fig3.add_subplot(111))
-        plt.tight_layout()
 
 
 
 # End of Script - display figures
 plt.show()
-print "[INFO] Finished."
+print "Finished"
 
 
