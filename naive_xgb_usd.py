@@ -97,22 +97,16 @@ test_df["life_sq"] = np.log(test_df["life_sq"])
 test_df["kitch_sq"] = np.log(test_df["kitch_sq"])
 
 
-# ----------------- Remove Extreme Data ----------------- #
-RANDOM_SEED_SPLIT = 1
-df_1m = df[ (df.price_doc<=1000000) & (df.product_type=="Investment") ]
-df    = df.drop(df_1m.index)
-df_1m = df_1m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED_SPLIT)
+# ----------------- Macro Data ----------------- #
+MacroFeatures = ['timestamp', 'usdrub', 'oil_urals', 'mortgage_rate', 'cpi', 'ppi', 'rent_price_2room_eco', 'micex',
+'rent_price_1room_eco', 'balance_trade', 'balance_trade_growth', 'gdp_quart_growth', 'net_capital_export']
+macro = macro[MacroFeatures]
+df      = pd.merge(df, macro, on='timestamp', how='left')
+test_df = pd.merge(test_df, macro, on='timestamp', how='left')
 
-df_2m = df[ (df.price_doc==2000000) & (df.product_type=="Investment") ]
-df    = df.drop(df_2m.index)
-df_2m = df_2m.sample(frac=0.33, replace=False, random_state=RANDOM_SEED_SPLIT)
-
-df_3m = df[ (df.price_doc==3000000) & (df.product_type=="Investment") ]
-df    = df.drop(df_3m.index)
-df_3m = df_3m.sample(frac=0.5, replace=False, random_state=RANDOM_SEED_SPLIT)
-
-df    = pd.concat([df, df_1m, df_2m, df_3m])
-
+# Price in USD
+df['price/usd'] = df['price_doc'] / df['usdrub'] * 0.9
+Target = 'price/usd'
 
 # Plot Original Data Set
 OrigTrainValidSetFig = plt.figure()
@@ -123,8 +117,8 @@ plt.title('Original Data Set')
 
 
 # ----------------- Training Data ----------------- #
-y_train = np.log1p(df['price_doc']*0.95)
-x_train = df.drop(["id", "timestamp", "price_doc", "price/sq"], axis=1)
+y_train = np.log1p(df[Target])
+x_train = df.drop(["id", "timestamp", "price_doc", "price/usd", "price/sq"], axis=1)
 # Encoding
 for c in x_train.columns:
     if x_train[c].dtype == 'object':
@@ -136,7 +130,7 @@ dtrain  = xgb.DMatrix(x_train, y_train)
 
 
 # ----------------- Test Data ----------------- #
-x_test  = test_df.drop(["id", "timestamp"], axis=1)
+x_test  = test_df.drop(["id", "timestamp", ], axis=1)
 # Encoding        
 for c in x_test.columns:
     if x_test[c].dtype == 'object':
@@ -164,27 +158,31 @@ xgb_params = {
 # ----------------- Cross Validation ----------------- #
 if EN_CROSSVALIDATION:
     print "[INFO] Cross Validation..."
-    cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, early_stopping_rounds=10,
+    cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, early_stopping_rounds=20,
                    verbose_eval=10, show_stdv=True)
     DEFAULT_TRAIN_ROUNDS = len(cv_output)
     print "[INFO] Optimal Training Rounds =", DEFAULT_TRAIN_ROUNDS
 
 # ----------------- Training ----------------- #
 print "[INFO] Training for", DEFAULT_TRAIN_ROUNDS, "rounds..."
-model      = xgb.train(xgb_params, dtrain, num_boost_round=DEFAULT_TRAIN_ROUNDS, 
+model = xgb.train(xgb_params, dtrain, num_boost_round=DEFAULT_TRAIN_ROUNDS, 
                        evals=[(dtrain, 'train')], verbose_eval=10)
-y_predict  = np.expm1(model.predict(dtest))
+y_hat = pd.Series(np.expm1(model.predict(dtest)), name='price/usd')
+y_hat.to_frame()
+test_df = test_df.join(y_hat)
+test_df['price_doc'] = test_df['price/usd'] * test_df['usdrub']
+y_predict = test_df['price_doc'].values
 submission = pd.DataFrame({'id': test_df.id, 'price_doc': y_predict})
 submission.to_csv('submission.csv', index=False)
 print submission.head()
+print "[INFO] Average Price =", test_df['price_doc'].mean()
 
 # Plot Original, Training and Test Sets
 ax4 = plt.subplot(312, sharex=ax1)
-plt.hist(y_train, bins=200, color='b')
-#plt.setp(ax4.get_xticklabels(), visible=False)
+plt.hist(np.log1p(df['price_doc']), bins=200, color='b')
 plt.title('Training Data Set')
 plt.subplot(313, sharex=ax1)
-plt.hist(np.log1p(y_predict), bins=200, color='b')
+plt.hist(np.log1p(test_df['price_doc']), bins=200, color='b')
 plt.title('Test Data Set Prediction')
 OrigTrainValidSetFig.show()
 
