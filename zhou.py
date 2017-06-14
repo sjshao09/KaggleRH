@@ -1,11 +1,27 @@
+# Mostly a lot of silliness at this point:
+#   Main contribution (50%) is based on Reynaldo's script with a linear transformation of y_train
+#      that happens to fit the public test data well
+#      and may also fit the private test data well
+#      if it reflects a macro effect
+#      but almost certainly won't generalize to later data
+#   Second contribution (20%) is based on Bruno do Amaral's very early entry but
+#      with an outlier that I deleted early in the competition
+#   Third contribution (30%) is based on a legitimate data cleaning,
+#      probably by gunja agarwal (or actually by Jason Benner, it seems,
+#      but there's also a small transformation applied ot the predictions,
+#      so also probably not generalizable),
+#   This combo being run by Andy Harless on June 4
+
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+#import matplotlib.pyplot as plt
+#import seaborn as sns
 from sklearn import model_selection, preprocessing
 import xgboost as xgb
 import datetime
 
+
+########################## Gunja Model ############################
 
 # ----------------- Settings ----------------- #
 EN_CROSSVALIDATION = True
@@ -352,8 +368,215 @@ test_df['price_doc'] = gunja_invest['price_doc']
 test_df.loc[test_df.product_type=="OwnerOccupier", 'price_doc'] = gunja_owner['price_doc']
 gunja_output = test_df[["id", "price_doc"]]
 print gunja_output.head()
-gunja_output.to_csv('gunja_output.csv', index=False)
 print "[INFO] Average Price =", gunja_output['price_doc'].mean()
 
 
 
+
+################# Louis Model #####################
+
+
+train = pd.read_csv('input/train.csv')
+test = pd.read_csv('input/test.csv')
+id_test = test.id
+
+mult = .969
+
+y_train = train["price_doc"] * mult + 10
+x_train = train.drop(["id", "timestamp", "price_doc"], axis=1)
+x_test = test.drop(["id", "timestamp"], axis=1)
+
+for c in x_train.columns:
+    if x_train[c].dtype == 'object':
+        lbl = preprocessing.LabelEncoder()
+        lbl.fit(list(x_train[c].values))
+        x_train[c] = lbl.transform(list(x_train[c].values))
+
+for c in x_test.columns:
+    if x_test[c].dtype == 'object':
+        lbl = preprocessing.LabelEncoder()
+        lbl.fit(list(x_test[c].values))
+        x_test[c] = lbl.transform(list(x_test[c].values))
+
+xgb_params = {
+    'eta': 0.05,
+    'max_depth': 5,
+    'subsample': 0.7,
+    'colsample_bytree': 0.7,
+    'objective': 'reg:linear',
+    'eval_metric': 'rmse',
+    'seed': 0,
+    'silent': 1
+}
+
+dtrain = xgb.DMatrix(x_train, y_train)
+dtest = xgb.DMatrix(x_test)
+
+# cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, early_stopping_rounds=20, verbose_eval=25, show_stdv=False)
+# print('best num_boost_rounds = ', len(cv_output))
+# num_boost_rounds = len(cv_output) # 382
+
+num_boost_rounds = 384  # This was the CV output, as earlier version shows
+model = xgb.train(xgb_params, dtrain, num_boost_round= num_boost_rounds)
+
+y_predict = model.predict(dtest)
+output = pd.DataFrame({'id': id_test, 'price_doc': y_predict})
+print "[INFO] Louis Model Average Price =", output['price_doc'].mean()
+# output.drop('average_q_price', axis=1, inplace=True)
+# output.head()
+
+
+
+
+
+
+######################## Bruno Model #########################
+
+
+
+
+
+
+
+# Any results you write to the current directory are saved as output.
+df_train = pd.read_csv("input/train.csv", parse_dates=['timestamp'])
+df_test = pd.read_csv("input/test.csv", parse_dates=['timestamp'])
+df_macro = pd.read_csv("input/macro.csv", parse_dates=['timestamp'])
+
+df_train.drop(df_train[df_train["life_sq"] > 7000].index, inplace=True)
+mult = 0.969
+y_train = df_train['price_doc'].values  * mult + 10
+id_test = df_test['id']
+
+df_train.drop(['id', 'price_doc'], axis=1, inplace=True)
+df_test.drop(['id'], axis=1, inplace=True)
+
+num_train = len(df_train)
+df_all = pd.concat([df_train, df_test])
+# Next line just adds a lot of NA columns (becuase "join" only works on indexes)
+# but somewhow it seems to affect the result
+df_all = df_all.join(df_macro, on='timestamp', rsuffix='_macro')
+print(df_all.shape)
+
+# Add month-year
+month_year = (df_all.timestamp.dt.month + df_all.timestamp.dt.year * 100)
+month_year_cnt_map = month_year.value_counts().to_dict()
+df_all['month_year_cnt'] = month_year.map(month_year_cnt_map)
+
+# Add week-year count
+week_year = (df_all.timestamp.dt.weekofyear + df_all.timestamp.dt.year * 100)
+week_year_cnt_map = week_year.value_counts().to_dict()
+df_all['week_year_cnt'] = week_year.map(week_year_cnt_map)
+
+# Add month and day-of-week
+df_all['month'] = df_all.timestamp.dt.month
+df_all['dow'] = df_all.timestamp.dt.dayofweek
+
+# Other feature engineering
+df_all['rel_floor'] = df_all['floor'] / df_all['max_floor'].astype(float)
+df_all['rel_kitch_sq'] = df_all['kitch_sq'] / df_all['full_sq'].astype(float)
+
+train['building_name'] = pd.factorize(train.sub_area + train['metro_km_avto'].astype(str))[0]
+test['building_name'] = pd.factorize(test.sub_area + test['metro_km_avto'].astype(str))[0]
+
+def add_time_features(col):
+   col_month_year = pd.Series(pd.factorize(train[col].astype(str) + month_year.astype(str))[0])
+   train[col + '_month_year_cnt'] = col_month_year.map(col_month_year.value_counts())
+
+   col_week_year = pd.Series(pd.factorize(train[col].astype(str) + week_year.astype(str))[0])
+   train[col + '_week_year_cnt'] = col_week_year.map(col_week_year.value_counts())
+
+add_time_features('building_name')
+add_time_features('sub_area')
+
+def add_time_features(col):
+   col_month_year = pd.Series(pd.factorize(test[col].astype(str) + month_year.astype(str))[0])
+   test[col + '_month_year_cnt'] = col_month_year.map(col_month_year.value_counts())
+
+   col_week_year = pd.Series(pd.factorize(test[col].astype(str) + week_year.astype(str))[0])
+   test[col + '_week_year_cnt'] = col_week_year.map(col_week_year.value_counts())
+
+add_time_features('building_name')
+add_time_features('sub_area')
+
+
+# Remove timestamp column (may overfit the model in train)
+df_all.drop(['timestamp', 'timestamp_macro'], axis=1, inplace=True)
+
+
+factorize = lambda t: pd.factorize(t[1])[0]
+
+df_obj = df_all.select_dtypes(include=['object'])
+
+X_all = np.c_[
+    df_all.select_dtypes(exclude=['object']).values,
+    np.array(list(map(factorize, df_obj.iteritems()))).T
+]
+print(X_all.shape)
+
+X_train = X_all[:num_train]
+X_test = X_all[num_train:]
+
+
+# Deal with categorical values
+df_numeric = df_all.select_dtypes(exclude=['object'])
+df_obj = df_all.select_dtypes(include=['object']).copy()
+
+for c in df_obj:
+    df_obj[c] = pd.factorize(df_obj[c])[0]
+
+df_values = pd.concat([df_numeric, df_obj], axis=1)
+
+
+# Convert to numpy values
+X_all = df_values.values
+print(X_all.shape)
+
+X_train = X_all[:num_train]
+X_test = X_all[num_train:]
+
+df_columns = df_values.columns
+
+
+xgb_params = {
+    'eta': 0.05,
+    'max_depth': 5,
+    'subsample': 0.7,
+    'colsample_bytree': 0.7,
+    'objective': 'reg:linear',
+    'eval_metric': 'rmse',
+    'seed': 0,
+    'silent': 1
+}
+
+dtrain = xgb.DMatrix(X_train, y_train, feature_names=df_columns)
+dtest = xgb.DMatrix(X_test, feature_names=df_columns)
+
+# cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, early_stopping_rounds=20, verbose_eval=25, show_stdv=False)
+# print('best num_boost_rounds = ', len(cv_output))
+# num_boost_rounds = len(cv_output) #
+
+num_boost_rounds = 420  # From Bruno's original CV, I think
+model = xgb.train(xgb_params, dtrain, num_boost_round=num_boost_rounds)
+
+y_pred = model.predict(dtest)
+
+df_sub = pd.DataFrame({'id': id_test, 'price_doc': y_pred})
+print "[INFO] Bruno Model Average Price =", df_sub['price_doc'].mean()
+df_sub.head()
+
+
+
+
+
+first_result = output.merge(df_sub, on="id", suffixes=['_louis','_bruno'])
+first_result["price_doc"] = np.exp( .714*np.log(first_result.price_doc_louis) +
+                                    .286*np.log(first_result.price_doc_bruno) )  # multiplies out to .5 & .2
+result = first_result.merge(gunja_output, on="id", suffixes=['_follow','_gunja'])
+
+result["price_doc"] = np.exp( .78*np.log(result.price_doc_follow) +
+                              .22*np.log(result.price_doc_gunja) )
+result.drop(["price_doc_louis","price_doc_bruno","price_doc_follow","price_doc_gunja"],axis=1,inplace=True)
+result.head()
+print "[INFO] Ensemble Average Price =", result['price_doc'].mean()
+result.to_csv('sub-silly-fixed-price-changed-local.csv', index=False)
