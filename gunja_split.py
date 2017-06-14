@@ -126,7 +126,7 @@ df = df[df.price_doc/df.full_sq <= np.exp(13.05)]
 #df = df[df.price_doc/df.full_sq >= np.exp(10.3)]
 test_df.product_type = "Investment"
 
-y_train = df["price_doc"]
+y_train = df["price_doc"] * 0.97
 x_train = df.drop(["id", "timestamp", "price_doc"], axis=1)
 x_test  = test_df.drop(["id", "timestamp"], axis=1)
 x_all   = pd.concat([x_train, x_test])
@@ -152,7 +152,7 @@ xgb_params = {
     'eta': 0.03,
     'max_depth': 5,
     'subsample': 0.7,
-    'colsample_bytree': 0.7,
+    'colsample_bytree': 1,
     'objective': 'reg:linear',
     'eval_metric': 'rmse',
     'silent': 1,
@@ -161,7 +161,7 @@ xgb_params = {
 
 if EN_CROSSVALIDATION:
     print "[INFO] Cross Validation..."
-    cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, early_stopping_rounds=10,
+    cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, early_stopping_rounds=20,
                    verbose_eval=20, show_stdv=True)
     DEFAULT_TRAIN_ROUNDS = len(cv_output)
     print "[INFO] Optimal Training Rounds =", DEFAULT_TRAIN_ROUNDS
