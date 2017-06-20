@@ -7,7 +7,7 @@ import xgboost as xgb
 
 # ----------------- Settings ----------------- #
 EN_CROSSVALIDATION   = False
-EN_IMPORTANCE        = True
+EN_IMPORTANCE        = False
 DEFAULT_TRAIN_ROUNDS = 384
 
 
@@ -24,7 +24,7 @@ plt.title('Original Data Set')
 
 
 # ----------------- Training Data ----------------- #
-y_train = df["price_doc"] * 0.968 + 10
+y_train = df["price_doc"] * 0.968
 x_train = df.drop(["id", "timestamp", "price_doc"], axis=1)
 # Encoding
 for c in x_train.columns:
@@ -74,11 +74,14 @@ if EN_CROSSVALIDATION:
 print "[INFO] Training for", DEFAULT_TRAIN_ROUNDS, "rounds..."
 model      = xgb.train(xgb_params, dtrain, num_boost_round=DEFAULT_TRAIN_ROUNDS, 
                        evals=[(dtrain, 'train')], verbose_eval=10)
+train_predict = model.predict(dtrain)
+train_predict_df = pd.DataFrame({'id': df.id, 'price_doc': train_predict})
+train_predict_df.to_csv('louis_train.csv', index=False)
 y_predict  = model.predict(dtest)
 submission = pd.DataFrame({'id': test_df.id, 'price_doc': y_predict})
-submission.to_csv('submission.csv', index=False)
+submission.to_csv('louis_test.csv', index=False)
 print submission.head()
-print "[INFO] Average Price =", submission['price_doc'].mean()
+print "[INFO] Louis Average Price =", submission['price_doc'].mean()
 
 # Plot Original, Training and Test Sets
 ax4 = plt.subplot(312, sharex=ax1)

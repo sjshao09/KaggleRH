@@ -8,10 +8,10 @@ import datetime
 
 
 # ----------------- Settings ----------------- #
-EN_CROSSVALIDATION = True
+EN_CROSSVALIDATION = False
 
 ######################### Train for Investment Data ############################
-DEFAULT_TRAIN_ROUNDS = 432
+DEFAULT_TRAIN_ROUNDS = 409
 #load files
 df      = pd.read_csv('input/train.csv', parse_dates=['timestamp'])
 test_df = pd.read_csv('input/test.csv', parse_dates=['timestamp'])
@@ -171,6 +171,98 @@ if EN_CROSSVALIDATION:
 print "[INFO] Training for", DEFAULT_TRAIN_ROUNDS, "rounds..."
 model      = xgb.train(xgb_params, dtrain, num_boost_round=DEFAULT_TRAIN_ROUNDS, 
                        evals=[(dtrain, 'train')], verbose_eval=50)
+
+
+# ----------------- Predicting Training Data for Ensemble ----------------- #
+#load files
+df      = pd.read_csv('input/train.csv', parse_dates=['timestamp'])
+test_df = pd.read_csv('input/test.csv', parse_dates=['timestamp'])
+# Training Set
+df.loc[df.id==13549, 'life_sq'] = 74
+df.loc[df.id==10092, 'build_year'] = 2007
+df.loc[df.id==10092, 'state'] = 3
+df.loc[df.id==13120, 'build_year'] = 1970
+df.loc[df.id==25943, 'max_floor'] = 17
+# Clean - Full Sq
+df.loc[(df.full_sq<=1) & (df.life_sq<=1), 'full_sq'] = np.nan
+df.loc[(df.full_sq<10) & (df.life_sq>1), 'full_sq'] = df.life_sq
+# Clean - Life Sq
+df.loc[df.life_sq > df.full_sq*4, 'life_sq'] = df.life_sq/10
+df.loc[df.life_sq > df.full_sq, 'life_sq'] = np.nan
+df.loc[df.life_sq < 5, 'life_sq'] = np.nan
+df.loc[df.life_sq < df.full_sq * 0.3, 'life_sq'] = np.nan
+# Clean - Kitch Sq
+df.loc[df.kitch_sq < 2, 'kitch_sq'] = np.nan
+df.loc[df.kitch_sq > df.full_sq * 0.5, 'kitch_sq'] = np.nan
+df.loc[df.kitch_sq > df.life_sq, 'kitch_sq'] = np.nan
+
+# Clean - Build Year
+df.loc[df.build_year<1000, 'build_year'] = np.nan
+df.loc[df.build_year>2050, 'build_year'] = np.nan
+# Clean - Num Room
+df.loc[df.num_room<1, 'num_room'] = np.nan
+df.loc[(df.num_room>4) & (df.full_sq<60), 'num_room'] = np.nan
+# Clean - Floor and Max Floor
+df.loc[df.floor==0, 'floor'] = np.nan
+df.loc[df.max_floor==0, 'max_floor'] = np.nan
+df.loc[(df.max_floor==1) & (df.floor>1), 'max_floor'] = np.nan
+df.loc[df.max_floor>50, 'max_floor'] = np.nan
+df.loc[df.floor>df.max_floor, 'floor'] = np.nan
+# month_year_cnt
+month_year = (df.timestamp.dt.month + df.timestamp.dt.year * 100)
+month_year_cnt_map = month_year.value_counts().to_dict()
+df['month_year_cnt'] = month_year.map(month_year_cnt_map)
+month_year = (test_df.timestamp.dt.month + test_df.timestamp.dt.year * 100)
+month_year_cnt_map = month_year.value_counts().to_dict()
+test_df['month_year_cnt'] = month_year.map(month_year_cnt_map)
+# week_year_cnt
+week_year = (df.timestamp.dt.weekofyear + df.timestamp.dt.year * 100)
+week_year_cnt_map = week_year.value_counts().to_dict()
+df['week_year_cnt'] = week_year.map(week_year_cnt_map)
+week_year = (test_df.timestamp.dt.weekofyear + test_df.timestamp.dt.year * 100)
+week_year_cnt_map = week_year.value_counts().to_dict()
+test_df['week_year_cnt'] = week_year.map(week_year_cnt_map)
+# month
+df['month']      = df.timestamp.dt.month
+test_df['month'] = test_df.timestamp.dt.month
+# day of week
+df['dow']        = df.timestamp.dt.dayofweek
+test_df['dow']   = test_df.timestamp.dt.dayofweek
+# floor/max_floor
+df['floor/max_floor']      = df['floor'] / df['max_floor'].astype(float)
+test_df['floor/max_floor'] = test_df['floor'] / test_df['max_floor'].astype(float)
+# kitch_sq/full_sq
+df["kitch_sq/full_sq"]      = df["kitch_sq"] / df["full_sq"].astype(float)
+test_df["kitch_sq/full_sq"] = test_df["kitch_sq"] / test_df["full_sq"].astype(float)
+# Avg Room Size
+df['avg_room_size']      = df['life_sq'] / df['num_room'].astype(float)
+test_df['avg_room_size'] = test_df['life_sq'] / test_df['num_room'].astype(float)
+# Apartment Name 
+df['apartment_name']      = df['sub_area'] + df['metro_km_avto'].astype(str)
+test_df['apartment_name'] = test_df['sub_area'] + test_df['metro_km_avto'].astype(str)
+
+df['product_type'] = "Investment"
+x_train = df.drop(["id", "timestamp", "price_doc"], axis=1)
+y_train = df["price_doc"]
+x_test  = test_df.drop(["id", "timestamp"], axis=1)
+x_all   = pd.concat([x_train, x_test])
+
+# Feature Encoding
+for c in x_all.columns:
+    if x_all[c].dtype == 'object':
+        lbl = preprocessing.LabelEncoder()
+        lbl.fit(list(x_all[c].values)) 
+        x_all[c] = lbl.transform(list(x_all[c].values))
+
+# Separate Training and Test Data
+num_train = len(x_train)
+x_train = x_all[:num_train]
+dtrain  = xgb.DMatrix(x_train, y_train)
+train_predict = model.predict(dtrain)
+invest_train_predict_df = pd.DataFrame({'id': df.id, 'price_doc': train_predict})
+# ----------------- Predicting Training Data for Ensemble -------end------- #
+
+
 y_predict  = model.predict(dtest)
 gunja_invest = pd.DataFrame({'id': test_df.id, 'price_doc': y_predict})
 print gunja_invest.head()
@@ -340,19 +432,117 @@ if EN_CROSSVALIDATION:
 print "[INFO] Training for", DEFAULT_TRAIN_ROUNDS, "rounds..."
 model      = xgb.train(xgb_params, dtrain, num_boost_round=DEFAULT_TRAIN_ROUNDS, 
                        evals=[(dtrain, 'train')], verbose_eval=50)
+
+# ----------------- Predicting Training Data for Ensemble ----------------- #
+#load files
+df      = pd.read_csv('input/train.csv', parse_dates=['timestamp'])
+test_df = pd.read_csv('input/test.csv', parse_dates=['timestamp'])
+# Training Set
+df.loc[df.id==13549, 'life_sq'] = 74
+df.loc[df.id==10092, 'build_year'] = 2007
+df.loc[df.id==10092, 'state'] = 3
+df.loc[df.id==13120, 'build_year'] = 1970
+df.loc[df.id==25943, 'max_floor'] = 17
+# Clean - Full Sq
+df.loc[(df.full_sq<=1) & (df.life_sq<=1), 'full_sq'] = np.nan
+df.loc[(df.full_sq<10) & (df.life_sq>1), 'full_sq'] = df.life_sq
+# Clean - Life Sq
+df.loc[df.life_sq > df.full_sq*4, 'life_sq'] = df.life_sq/10
+df.loc[df.life_sq > df.full_sq, 'life_sq'] = np.nan
+df.loc[df.life_sq < 5, 'life_sq'] = np.nan
+df.loc[df.life_sq < df.full_sq * 0.3, 'life_sq'] = np.nan
+# Clean - Kitch Sq
+df.loc[df.kitch_sq < 2, 'kitch_sq'] = np.nan
+df.loc[df.kitch_sq > df.full_sq * 0.5, 'kitch_sq'] = np.nan
+df.loc[df.kitch_sq > df.life_sq, 'kitch_sq'] = np.nan
+# Clean - Build Year
+df.loc[df.build_year<1000, 'build_year'] = np.nan
+df.loc[df.build_year>2050, 'build_year'] = np.nan
+# Clean - Num Room
+df.loc[df.num_room<1, 'num_room'] = np.nan
+df.loc[(df.num_room>4) & (df.full_sq<60), 'num_room'] = np.nan
+# Clean - Floor and Max Floor
+df.loc[df.floor==0, 'floor'] = np.nan
+df.loc[df.max_floor==0, 'max_floor'] = np.nan
+df.loc[(df.max_floor==1) & (df.floor>1), 'max_floor'] = np.nan
+df.loc[df.max_floor>50, 'max_floor'] = np.nan
+df.loc[df.floor>df.max_floor, 'floor'] = np.nan
+# month_year_cnt
+month_year = (df.timestamp.dt.month + df.timestamp.dt.year * 100)
+month_year_cnt_map = month_year.value_counts().to_dict()
+df['month_year_cnt'] = month_year.map(month_year_cnt_map)
+month_year = (test_df.timestamp.dt.month + test_df.timestamp.dt.year * 100)
+month_year_cnt_map = month_year.value_counts().to_dict()
+test_df['month_year_cnt'] = month_year.map(month_year_cnt_map)
+# week_year_cnt
+week_year = (df.timestamp.dt.weekofyear + df.timestamp.dt.year * 100)
+week_year_cnt_map = week_year.value_counts().to_dict()
+df['week_year_cnt'] = week_year.map(week_year_cnt_map)
+week_year = (test_df.timestamp.dt.weekofyear + test_df.timestamp.dt.year * 100)
+week_year_cnt_map = week_year.value_counts().to_dict()
+test_df['week_year_cnt'] = week_year.map(week_year_cnt_map)
+# month
+df['month']      = df.timestamp.dt.month
+test_df['month'] = test_df.timestamp.dt.month
+# day of week
+df['dow']        = df.timestamp.dt.dayofweek
+test_df['dow']   = test_df.timestamp.dt.dayofweek
+# floor/max_floor
+df['floor/max_floor']      = df['floor'] / df['max_floor'].astype(float)
+test_df['floor/max_floor'] = test_df['floor'] / test_df['max_floor'].astype(float)
+# kitch_sq/full_sq
+df["kitch_sq/full_sq"]      = df["kitch_sq"] / df["full_sq"].astype(float)
+test_df["kitch_sq/full_sq"] = test_df["kitch_sq"] / test_df["full_sq"].astype(float)
+# Avg Room Size
+df['avg_room_size']      = df['life_sq'] / df['num_room'].astype(float)
+test_df['avg_room_size'] = test_df['life_sq'] / test_df['num_room'].astype(float)
+# Apartment Name 
+df['apartment_name']      = df['sub_area'] + df['metro_km_avto'].astype(str)
+test_df['apartment_name'] = test_df['sub_area'] + test_df['metro_km_avto'].astype(str)
+
+df.product_type = "OwnerOccupier"
+x_train = df.drop(["id", "timestamp", "price_doc"], axis=1)
+y_train = df["price_doc"]
+x_test  = test_df.drop(["id", "timestamp"], axis=1)
+x_all   = pd.concat([x_train, x_test])
+
+# Feature Encoding
+for c in x_all.columns:
+    if x_all[c].dtype == 'object':
+        lbl = preprocessing.LabelEncoder()
+        lbl.fit(list(x_all[c].values)) 
+        x_all[c] = lbl.transform(list(x_all[c].values))
+
+# Separate Training and Test Data
+num_train = len(x_train)
+x_train = x_all[:num_train]
+dtrain  = xgb.DMatrix(x_train, y_train)
+train_predict = model.predict(dtrain)
+owner_train_predict_df = pd.DataFrame({'id': df.id, 'price_doc': train_predict})
+# ----------------- Predicting Training Data for Ensemble -------end------- #
+
+
+
 y_predict  = model.predict(dtest)
 gunja_owner = pd.DataFrame({'id': test_df.id, 'price_doc': y_predict})
 print gunja_owner.head()
 
 
 ############################## Merge #############################
+# For Training Data Set
+df = pd.read_csv('input/train.csv')
+df['price_doc'] = invest_train_predict_df['price_doc']
+df.loc[df.product_type=="OwnerOccupier", 'price_doc'] = owner_train_predict_df['price_doc']
+train_predict = df[["id", "price_doc"]]
+train_predict.to_csv('gunja_train.csv', index=False)
 
+# For Test Data Set
 test_df = pd.read_csv('input/test.csv', parse_dates=['timestamp'])
 test_df['price_doc'] = gunja_invest['price_doc']
 test_df.loc[test_df.product_type=="OwnerOccupier", 'price_doc'] = gunja_owner['price_doc']
 gunja_output = test_df[["id", "price_doc"]]
 print gunja_output.head()
-gunja_output.to_csv('gunja_output.csv', index=False)
+gunja_output.to_csv('gunja_test.csv', index=False)
 print "[INFO] Average Price =", gunja_output['price_doc'].mean()
 
 
