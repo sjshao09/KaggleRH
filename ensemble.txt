@@ -1,0 +1,75 @@
+Ensemble Models
+
+
+ensemble{louis=0.22, bruno=0.34, gunja=0.22, svr=0.22}: avg720 => 0.30909
+ensemble{louis=0.25, bruno=0.25, gunja=0.25, svr=0.25}: avg720 => 0.30903
+ensemble{louis=0.34, bruno=0.22, gunja=0.22, svr=0.22}: avg721 => 0.30905
+ensemble{louis=0.43, bruno=0.19, gunja=0.19, svr=0.19}: avg721 => 0.30915
+ensemble{louis=0.52, bruno=0.16, gunja=0.16, svr=0.16}: avg722 => 0.30935
+ensemble{louis=0.61, bruno=0.13, gunja=0.13, svr=0.13}: avg723 => 0.30964
+ensemble{louis=0.70, bruno=0.10, gunja=0.10, svr=0.10}: avg723 => 0.31002
+
+
+
+naive_xgb.py => louis.csv => 0.31194
+=================================================
+naive_xgb: *0.968
+      id  price_doc
+0  30474  5274205.0
+1  30475  8245010.0
+2  30476  5217431.0
+3  30477  5747165.5
+4  30478  4986720.5
+[INFO] Average Price = 7.25846e+06
+
+
+zhou_bruno.py => bruno.csv => 0.31284
+=================================================
+      id  price_doc
+0  30474  5289504.0
+1  30475  7817077.0
+2  30476  5283728.0
+3  30477  5541650.5
+4  30478  4874496.0
+[INFO] Bruno Model Average Price = 7.20505e+06
+
+
+gunja_split.py => gunja.csv => 0.31527
+=================================================
+invest only cut high prices + 0.97: avg 722
+      id  price_doc
+0  30474  5437890.5
+1  30475  7903642.0
+2  30476  5308802.0
+3  30477  6591754.0
+4  30478  5248721.0
+[INFO] Average Price = 7.22493e+06
+
+
+svr.py => svr.csv => 0.31879
+=================================================
+svr{ep=0.23, C=32, gamma=0.0002}
+      id     price_doc
+0  30474  5.293105e+06
+1  30475  8.007659e+06
+2  30476  4.846233e+06
+3  30477  6.556050e+06
+4  30478  4.572259e+06
+[INFO] SVR Average Price = 7215667.65444
+
+
+// NOTE: Currently we *1.054 for train and *0.98 for test
+andy.py => andy_test.csv => 0.31293
+=================================================
+[INFO] Andy Average Price = 7.46743e+06
+      id  price_doc
+0  30474  5622093.5
+1  30475  8166325.5
+2  30476  5174641.0
+3  30477  6060391.0
+4  30478  5043367.5
+
+
+
+
+
