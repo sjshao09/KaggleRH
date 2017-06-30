@@ -88,19 +88,34 @@ test_df['bad_floor'] = (test_df['floor']==1) | (test_df['floor']==test_df['max_f
 df["kitch_sq/full_sq"] = df["kitch_sq"] / df["full_sq"]
 test_df["kitch_sq/full_sq"] = test_df["kitch_sq"] / test_df["full_sq"]
 # log size
-df["full_sq"] = np.log(df["full_sq"])
-df["life_sq"] = np.log(df["life_sq"])
-df["kitch_sq"] = np.log(df["kitch_sq"])
-test_df["full_sq"] = np.log(test_df["full_sq"])
-test_df["life_sq"] = np.log(test_df["life_sq"])
-test_df["kitch_sq"] = np.log(test_df["kitch_sq"])
+df["full_sq"] = np.log1p(df["full_sq"])
+df["life_sq"] = np.log1p(df["life_sq"])
+df["kitch_sq"] = np.log1p(df["kitch_sq"])
+test_df["full_sq"] = np.log1p(test_df["full_sq"])
+test_df["life_sq"] = np.log1p(test_df["life_sq"])
+test_df["kitch_sq"] = np.log1p(test_df["kitch_sq"])
+# New Feature - age when sold
+df["age_when_sold"] = pd.to_datetime(df["timestamp"]).dt.year - df["build_year"]
+test_df["age_when_sold"] = pd.to_datetime(test_df["timestamp"]).dt.year - test_df["build_year"]
+# New Feature - life_sq/full_sq
+df["life_sq/full_sq"] = df["life_sq"] / df["full_sq"]
+test_df["life_sq/full_sq"] = test_df["life_sq"] / test_df["full_sq"]
+
+
+# ----------------- Macro Data ----------------- #
+MacroFeatures = ['timestamp', 'usdrub', 'oil_urals', 'mortgage_rate', 'cpi', 'ppi', 'rent_price_2room_eco', 'micex',
+'rent_price_1room_eco', 'balance_trade', 'balance_trade_growth', 'gdp_quart_growth', 'net_capital_export']
+macro = macro[MacroFeatures]
+df      = pd.merge(df, macro, on='timestamp', how='left')
+test_df = pd.merge(test_df, macro, on='timestamp', how='left')
+
 
 # ----------------- Fill by median ----------------- #
 df.fillna(df.median(axis=0), inplace=True)
 test_df['product_type'].fillna(test_df['product_type'].mode().iloc[0], inplace=True)
 test_df.fillna(df.median(axis=0), inplace=True)
 
-'''
+
 # ----------------- Remove Extreme Data ----------------- #
 RANDOM_SEED_SPLIT = 1
 df_1m = df[ (df.price_doc<=1000000) & (df.product_type=="Investment") ]
@@ -109,14 +124,14 @@ df_1m = df_1m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED_SPLIT)
 
 df_2m = df[ (df.price_doc==2000000) & (df.product_type=="Investment") ]
 df    = df.drop(df_2m.index)
-df_2m = df_2m.sample(frac=0.33, replace=False, random_state=RANDOM_SEED_SPLIT)
+df_2m = df_2m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED_SPLIT)
 
 df_3m = df[ (df.price_doc==3000000) & (df.product_type=="Investment") ]
 df    = df.drop(df_3m.index)
-df_3m = df_3m.sample(frac=0.5, replace=False, random_state=RANDOM_SEED_SPLIT)
+df_3m = df_3m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED_SPLIT)
 
 df    = pd.concat([df, df_1m, df_2m, df_3m])
-'''
+
 
 # Plot Original Data Set
 OrigTrainValidSetFig = plt.figure()
@@ -127,7 +142,7 @@ plt.title('Original Data Set')
 
 
 # ----------------- Training Data ----------------- #
-y_train = df['price_doc']
+y_train = df['price_doc'] * 0.95
 x_train = df.drop(["id", "timestamp", "price_doc", "price/sq"], axis=1)
 # Encoding
 for c in x_train.columns:
@@ -145,9 +160,6 @@ for c in x_test.columns:
         lbl = preprocessing.LabelEncoder()
         lbl.fit(list(x_test[c].values)) 
         x_test[c] = lbl.transform(list(x_test[c].values))
-
-
-# ----------------- Parameters ----------------- #
 
 
 # ----------------- Cross Validation ----------------- #
@@ -181,6 +193,7 @@ y_predict  = model.predict(x_test)
 submission = pd.DataFrame({'id': test_df.id, 'price_doc': y_predict})
 submission.to_csv('submission.csv', index=False)
 print submission.head()
+print "[INFO] Average Price =", submission['price_doc'].mean()
 
 # Plot Original, Training and Test Sets
 ax4 = plt.subplot(312, sharex=ax1)

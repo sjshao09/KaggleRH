@@ -8,7 +8,7 @@ import datetime
 
 
 # ----------------- Settings ----------------- #
-EN_CROSSVALIDATION = False
+EN_CROSSVALIDATION = True
 
 ######################### Train for Investment Data ############################
 DEFAULT_TRAIN_ROUNDS = 409
@@ -172,7 +172,7 @@ print "[INFO] Training for", DEFAULT_TRAIN_ROUNDS, "rounds..."
 model      = xgb.train(xgb_params, dtrain, num_boost_round=DEFAULT_TRAIN_ROUNDS, 
                        evals=[(dtrain, 'train')], verbose_eval=50)
 
-
+'''
 # ----------------- Predicting Training Data for Ensemble ----------------- #
 #load files
 df      = pd.read_csv('input/train.csv', parse_dates=['timestamp'])
@@ -261,7 +261,7 @@ dtrain  = xgb.DMatrix(x_train, y_train)
 train_predict = model.predict(dtrain)
 invest_train_predict_df = pd.DataFrame({'id': df.id, 'price_doc': train_predict})
 # ----------------- Predicting Training Data for Ensemble -------end------- #
-
+'''
 
 y_predict  = model.predict(dtest)
 gunja_invest = pd.DataFrame({'id': test_df.id, 'price_doc': y_predict})
@@ -380,7 +380,6 @@ test_df['avg_room_size'] = test_df['life_sq'] / test_df['num_room'].astype(float
 df['apartment_name']      = df['sub_area'] + df['metro_km_avto'].astype(str)
 test_df['apartment_name'] = test_df['sub_area'] + test_df['metro_km_avto'].astype(str)
 
-
 # ----------------- Train for OwnerOccupier Data ----------------- #
 df = df[df.product_type=="OwnerOccupier"]
 df = df[df.price_doc/df.full_sq <= np.exp(13.15)]
@@ -432,7 +431,7 @@ if EN_CROSSVALIDATION:
 print "[INFO] Training for", DEFAULT_TRAIN_ROUNDS, "rounds..."
 model      = xgb.train(xgb_params, dtrain, num_boost_round=DEFAULT_TRAIN_ROUNDS, 
                        evals=[(dtrain, 'train')], verbose_eval=50)
-
+'''
 # ----------------- Predicting Training Data for Ensemble ----------------- #
 #load files
 df      = pd.read_csv('input/train.csv', parse_dates=['timestamp'])
@@ -520,7 +519,7 @@ dtrain  = xgb.DMatrix(x_train, y_train)
 train_predict = model.predict(dtrain)
 owner_train_predict_df = pd.DataFrame({'id': df.id, 'price_doc': train_predict})
 # ----------------- Predicting Training Data for Ensemble -------end------- #
-
+'''
 
 
 y_predict  = model.predict(dtest)
@@ -529,13 +528,14 @@ print gunja_owner.head()
 
 
 ############################## Merge #############################
+'''
 # For Training Data Set
 df = pd.read_csv('input/train.csv')
 df['price_doc'] = invest_train_predict_df['price_doc']
 df.loc[df.product_type=="OwnerOccupier", 'price_doc'] = owner_train_predict_df['price_doc']
 train_predict = df[["id", "price_doc"]]
 train_predict.to_csv('gunja_train.csv', index=False)
-
+'''
 # For Test Data Set
 test_df = pd.read_csv('input/test.csv', parse_dates=['timestamp'])
 test_df['price_doc'] = gunja_invest['price_doc']

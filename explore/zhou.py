@@ -432,12 +432,6 @@ print "[INFO] Louis Model Average Price =", output['price_doc'].mean()
 
 ######################## Bruno Model #########################
 
-
-
-
-
-
-
 # Any results you write to the current directory are saved as output.
 df_train = pd.read_csv("input/train.csv", parse_dates=['timestamp'])
 df_test = pd.read_csv("input/test.csv", parse_dates=['timestamp'])

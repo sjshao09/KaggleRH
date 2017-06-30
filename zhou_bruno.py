@@ -47,6 +47,26 @@ df_all['rel_floor'] = df_all['floor'] / df_all['max_floor'].astype(float)
 df_all['rel_kitch_sq'] = df_all['kitch_sq'] / df_all['full_sq'].astype(float)
 
 
+
+######## BEGIN 2ND SET OF BILL S CHANGES 
+'''
+## same ones as above 
+df_all['area_per_room'] = df_all['life_sq'] / df_all['num_room'].astype(float)
+df_all['livArea_ratio'] = df_all['life_sq'] / df_all['full_sq'].astype(float)
+df_all['yrs_old'] = 2017 - df_all['build_year'].astype(float)
+df_all['avgfloor_sq'] = df_all['life_sq']/df_all['max_floor'].astype(float) #living area per floor
+df_all['pts_floor_ratio'] = df_all['public_transport_station_km']/df_all['max_floor'].astype(float) #apartments near public t?
+#f_all['room_size'] = df_all['life_sq'] / df_all['num_room'].astype(float)
+df_all['gender_ratio'] = df_all['male_f']/df_all['female_f'].astype(float)
+df_all['kg_park_ratio'] = df_all['kindergarten_km']/df_all['park_km'].astype(float)
+df_all['high_ed_extent'] = df_all['school_km'] / df_all['kindergarten_km']
+df_all['pts_x_state'] = df_all['public_transport_station_km'] * df_all['state'].astype(float) #public trans * state of listing
+df_all['lifesq_x_state'] = df_all['life_sq'] * df_all['state'].astype(float)
+df_all['floor_x_state'] = df_all['floor'] * df_all['state'].astype(float)
+'''
+#########  END 2ND SET OF BILL S CHANGES
+
+
 # Remove timestamp column (may overfit the model in train)
 df_all.drop(['timestamp', 'timestamp_macro'], axis=1, inplace=True)
 
@@ -98,15 +118,15 @@ xgb_params = {
 
 dtrain = xgb.DMatrix(X_train, y_train, feature_names=df_columns)
 dtest = xgb.DMatrix(X_test, feature_names=df_columns)
-
-# cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, early_stopping_rounds=20, verbose_eval=25, show_stdv=False)
-# print('best num_boost_rounds = ', len(cv_output))
-# num_boost_rounds = len(cv_output) #
-
+'''
+cv_output = xgb.cv(xgb_params, dtrain, num_boost_round=1000, early_stopping_rounds=20, verbose_eval=25, show_stdv=False)
+print('best num_boost_rounds = ', len(cv_output))
+num_boost_rounds = len(cv_output)
+'''
 num_boost_rounds = 420  # From Bruno's original CV, I think
 model = xgb.train(xgb_params, dtrain, num_boost_round=num_boost_rounds, evals=[(dtrain, 'train')], verbose_eval=10)
 
-
+'''
 # ---------------------- Predict Training Set for Ensemble --------------------- #
 # Any results you write to the current directory are saved as output.
 df_train = pd.read_csv("input/train.csv", parse_dates=['timestamp'])
@@ -177,7 +197,7 @@ train_predict = model.predict(dtrain)
 train_predict_df = pd.DataFrame({'id': id_train, 'price_doc': train_predict})
 train_predict_df.to_csv('bruno_train.csv', index=False)
 # ---------------------- Predict Training Set for Ensemble -------end---------- #
-
+'''
 
 y_pred = model.predict(dtest)
 

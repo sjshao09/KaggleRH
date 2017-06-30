@@ -14,7 +14,7 @@ EN_CROSSVALIDATION = True
 EN_TRAINING        = True
 EN_IMPORTANCE      = False
 EN_PREDICTION      = True
-EN_MARCODATA       = False
+EN_MARCODATA       = True
 EN_TRAINALL        = False
 NUM_TRAIN_ROUNDS   = 1000
 RANDOM_SEED_SPLIT  = 1
@@ -45,31 +45,38 @@ df_location = pd.DataFrame({'sub_area':shp['RAION'], 'district':shp['OKRUGS'], '
 df = pd.merge(df, df_location, on='sub_area', how='left')
 
 
-# Data Cleaning
-# full_sq
-df = df[(df.full_sq>1)|(df.life_sq>1)]
-df = df[(df.full_sq<350)]
-df.loc[(df.full_sq<2) & (df.life_sq>1), 'full_sq'] = df.life_sq
-# life_sq
+# ----------------- Data Cleaning ----------------- #
+# Training Set
 df.loc[df.id==13549, 'life_sq'] = 74
-df.loc[df.life_sq>df.full_sq*2, 'life_sq'] = df.life_sq/10
-df.loc[(df.life_sq<1)|(df.life_sq>df.full_sq), 'life_sq'] = 1
-# kitch_sq
-df.loc[df.kitch_sq<2, 'kitch_sq'] = 1
-# build_year
-df.loc[(df.build_year<1000)|(df.build_year>2050), 'build_year'] = np.nan
 df.loc[df.id==10092, 'build_year'] = 2007
-# state
 df.loc[df.id==10092, 'state'] = 3
-# num_room
-df.loc[df.full_sq<30, 'num_room'] = 1
-df.loc[df.num_room<1, 'num_room'] = np.nan
-df.loc[(df.num_room>9) & (df.full_sq<100), 'num_room'] = np.nan
-# floor
-df.loc[df.floor==0, 'floor'] = np.nan
-# max_floor
+df.loc[df.id==13120, 'build_year'] = 1970
 df.loc[df.id==25943, 'max_floor'] = 17
-df.loc[(df.max_floor==0)|(df.max_floor<df.floor), 'max_floor'] = np.nan
+# Clean - Full Sq
+df.loc[(df.full_sq<2) & (df.life_sq<2), 'full_sq'] = np.nan
+df.loc[(df.full_sq<10) & (df.life_sq>1), 'full_sq'] = df.life_sq
+# Clean - Life Sq
+df.loc[df.life_sq > df.full_sq*4, 'life_sq'] = df.life_sq/10
+df.loc[df.life_sq > df.full_sq, 'life_sq'] = np.nan
+df.loc[df.life_sq < 5, 'life_sq'] = np.nan
+df.loc[df.life_sq < df.full_sq * 0.3, 'life_sq'] = np.nan
+# Clean - Kitch Sq
+df.loc[df.kitch_sq < 2, 'kitch_sq'] = np.nan
+df.loc[df.kitch_sq > df.full_sq * 0.5, 'kitch_sq'] = np.nan
+df.loc[df.kitch_sq > df.life_sq, 'kitch_sq'] = np.nan
+# Clean - Build Year
+df.loc[df.build_year<1000, 'build_year'] = np.nan
+df.loc[df.build_year>2050, 'build_year'] = np.nan
+# Clean - Num Room
+df.loc[df.num_room<1, 'num_room'] = np.nan
+df.loc[(df.num_room>4) & (df.full_sq<60), 'num_room'] = np.nan
+# Clean - Floor and Max Floor
+df.loc[df.floor==0, 'floor'] = np.nan
+df.loc[df.max_floor==0, 'max_floor'] = np.nan
+df.loc[(df.max_floor==1) & (df.floor>1), 'max_floor'] = np.nan
+df.loc[df.max_floor>50, 'max_floor'] = np.nan
+df.loc[df.floor>df.max_floor, 'floor'] = np.nan
+
 
 # Imputing Values
 if EN_IMPUTATION:
@@ -91,28 +98,24 @@ plt.setp(ax1.get_xticklabels(), visible=False)
 plt.title('Original Data Set')
 
 # Down Sampling
-df    = df[df.timestamp<'2015-01-01']
+#df    = df[df.timestamp<'2015-01-01']
 df_1m = df[ (df.price_doc<=1000000) & (df.product_type=="Investment") ]
 df    = df.drop(df_1m.index)
 df_1m = df_1m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED_SPLIT)
 df_2m = df[ (df.price_doc==2000000) & (df.product_type=="Investment") ]
 df    = df.drop(df_2m.index)
-df_2m = df_2m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED_SPLIT)
+df_2m = df_2m.sample(frac=0.33, replace=False, random_state=RANDOM_SEED_SPLIT)
 df_3m = df[ (df.price_doc==3000000) & (df.product_type=="Investment") ]
 df    = df.drop(df_3m.index)
-df_3m = df_3m.sample(frac=0.1, replace=False, random_state=RANDOM_SEED_SPLIT)
+df_3m = df_3m.sample(frac=0.5, replace=False, random_state=RANDOM_SEED_SPLIT)
 df    = pd.concat([df, df_1m, df_2m, df_3m])
 
 
 # Object Columns
 ObjColName_Train = ['timestamp', 'culture_objects_top_25', 'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 'ecology']
-ObjColName_Macro = ['child_on_acc_pre_school', 'modern_education_share', 'old_education_build_share']
 ObjCol = df[ObjColName_Train]
 # Drop Non-Numerical Features and id
-if EN_MARCODATA:
-    ColToDrop = ObjColName_Train + ObjColName_Macro + ['id']
-else:
-    ColToDrop = ObjColName_Train + ['id']
+ColToDrop = ObjColName_Train + ['id']
 df = df.drop(ColToDrop, axis=1)
 
 
@@ -130,6 +133,14 @@ df['district'] = DistrictEncoder.transform(df['district'])
 SubAreaEncoder = LabelEncoder()
 SubAreaEncoder.fit(df['sub_area'])
 df['sub_area'] = SubAreaEncoder.transform(df['sub_area'])
+
+
+# Take log of size
+# log size
+df["full_sq"] = np.log(df["full_sq"])
+df["life_sq"] = np.log(df["life_sq"])
+df["kitch_sq"] = np.log(df["kitch_sq"])
+
 
 
 # Prepare Training and Validation Sets
@@ -172,7 +183,7 @@ else:
 
 # xgboost cross validation - for parameter selection
 xgb_params = {
-    'learning_rate': 0.1,
+    'learning_rate': 0.05,
     'max_depth': 5,
     'gamma': 0,
     'sub_sample': 0.7,
@@ -198,11 +209,11 @@ if EN_TRAINING:
     if EN_TRAINALL:
         print "[INFO] Training for", OptTrainRounds,"rounds..."
         model = xgb.train(xgb_params, dtrain, num_boost_round=OptTrainRounds,
-                early_stopping_rounds=10, evals=[(dtrain, 'train')], verbose_eval=10)        
+                early_stopping_rounds=20, evals=[(dtrain, 'train')], verbose_eval=10)        
     else:
         print "[INFO] Training..."
         model = xgb.train(xgb_params, dtrain, num_boost_round=NUM_TRAIN_ROUNDS,
-                early_stopping_rounds=10, evals=[(dtrain, 'train'),(dvalid, 'validation')], verbose_eval=10)
+                early_stopping_rounds=20, evals=[(dtrain, 'train'),(dvalid, 'validation')], verbose_eval=10)
         train_y_hat = model.predict(dtrain)
         rmsle_train = np.sqrt(mean_squared_error(train_y, train_y_hat))
         valid_y_hat = model.predict(dvalid)
@@ -220,22 +231,36 @@ if EN_TRAINING:
         # Merge MarcoData
         if EN_MARCODATA:
             test_df = pd.merge(test_df, df_macro, on='timestamp', how='left')
-        # Data Cleaning
-        # full_sq
-        test_df.loc[test_df.id==30938,  'full_sq'] = 37.8
+        
+	# Test Set
+	test_df.loc[test_df.id==30938,  'full_sq'] = 37.8
 	test_df.loc[test_df.id==35857,  'full_sq'] = 42.07
-        test_df.loc[test_df.id==35108,  'full_sq'] = 40.3
-	# life_sq
-        test_df.loc[test_df.life_sq>test_df.full_sq*2, 'life_sq'] = test_df.life_sq/10
-        test_df.loc[test_df.life_sq<1, 'life_sq']  = np.nan
-        # kitch_sq
-        test_df.loc[(test_df.kitch_sq>test_df.full_sq*0.7)|(test_df.kitch_sq<1) , 'kitch_sq'] = 1
-        # build_year
-        test_df.loc[(test_df.build_year<1000) | (test_df.build_year>2050), 'build_year'] = np.nan
-        # num_room
-        test_df.loc[test_df.id==33648,  'num_room'] = 1
-        # max_floor
-        test_df.loc[test_df.max_floor<test_df.floor, 'max_floor'] = np.nan
+	test_df.loc[test_df.id==35108,  'full_sq'] = 40.3
+	test_df.loc[test_df.id==33648,  'num_room'] = 1
+	# Clean - Full Sq
+	test_df.loc[(test_df.full_sq<10) & (test_df.life_sq>1), 'full_sq'] = test_df.life_sq
+	# Clean - Life Sq
+	test_df.loc[test_df.life_sq>test_df.full_sq*2, 'life_sq'] = test_df.life_sq/10
+	test_df.loc[test_df.life_sq > test_df.full_sq, 'life_sq'] = np.nan
+	test_df.loc[test_df.life_sq < 5, 'life_sq'] = np.nan
+	test_df.loc[test_df.life_sq < test_df.full_sq * 0.3, 'life_sq'] = np.nan
+	# Clean - Kitch Sq
+	test_df.loc[test_df.kitch_sq < 2, 'kitch_sq'] = np.nan
+	test_df.loc[test_df.kitch_sq > test_df.full_sq * 0.5, 'kitch_sq'] = np.nan
+	test_df.loc[test_df.kitch_sq > test_df.life_sq, 'kitch_sq'] = np.nan
+	# Clean - Build Year
+	test_df.loc[test_df.build_year<1000, 'build_year'] = np.nan
+	test_df.loc[test_df.build_year>2050, 'build_year'] = np.nan
+	# Clean - Num Room
+	test_df.loc[test_df.num_room<1, 'num_room'] = np.nan
+	test_df.loc[(test_df.num_room>4) & (test_df.full_sq<60), 'num_room'] = np.nan
+	# Clean - Floor and Max Floor
+	test_df.loc[test_df.floor==0, 'floor'] = np.nan
+	test_df.loc[test_df.max_floor==0, 'max_floor'] = np.nan
+	test_df.loc[(test_df.max_floor==1) & (test_df.floor>1), 'max_floor'] = np.nan
+	test_df.loc[test_df.max_floor>50, 'max_floor'] = np.nan
+	test_df.loc[test_df.floor>test_df.max_floor, 'floor'] = np.nan
+
 
         # object Column Encoding
         # product_type
@@ -257,12 +282,18 @@ if EN_TRAINING:
             # Fill the rest of missing values with median
             test_df.fillna(test_df.median(axis=0), inplace=True)
 
+	# Take log of size
+	test_df["full_sq"] = np.log(test_df["full_sq"])
+	test_df["life_sq"] = np.log(test_df["life_sq"])
+	test_df["kitch_sq"] = np.log(test_df["kitch_sq"])
+
         # Drop Columns
         test_X = test_df.drop(ColToDrop, axis=1)
         test_y_predict = np.exp(model.predict(xgb.DMatrix(test_X)))-1
         submission = pd.DataFrame(index=test_df['id'], data={'price_doc':test_y_predict})
         print submission.head()
         submission.to_csv('submission.csv', header=True)
+	print "[INFO] Average Price =", submission['price_doc'].mean()
 
     if EN_TRAINALL:
         # Plot Original, Training and Test Sets
